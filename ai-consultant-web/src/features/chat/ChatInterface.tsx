@@ -5,7 +5,7 @@ import { DefaultChatTransport } from 'ai';
 import { useAgentStore } from '@/lib/store';
 import { agents } from '@/features/agents/config';
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, User, Send, ChevronDown, RotateCcw, Radar, LayoutGrid, RefreshCw } from 'lucide-react';
+import { Bot, User, Send, ChevronDown, RotateCcw, Radar, LayoutGrid, RefreshCw, ChevronRight, Sparkles } from 'lucide-react';
 import { SessionListDropdown } from '@/features/sessions/SessionList';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -127,6 +127,7 @@ export function ChatInterface() {
   const config = agents[currentAgentId];
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [expandedReplies, setExpandedReplies] = useState<Set<number>>(new Set());
 
   const [error, setError] = useState<Error | undefined>(undefined);
   
@@ -215,6 +216,7 @@ export function ChatInterface() {
   const handleSend = async (value: string) => {
     setInput('');
     setError(undefined);
+    setExpandedReplies(new Set()); // Clear expanded replies when sending
     if (currentAgentId === 'gxx') {
       updateCanvasData('gxx', { suggestedReplies: [] });
     }
@@ -394,7 +396,7 @@ export function ChatInterface() {
   return (
     <div className="w-[35%] min-w-[380px] max-w-[450px] bg-white border-r border-slate-200 flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10 relative h-full">
        {/* Header */}
-       <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-white/95 backdrop-blur z-30 relative">
+       <div className="flex-none px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-white/95 backdrop-blur z-30 relative">
           <div className="flex items-center gap-3 cursor-pointer group relative">
              <div className={`w-10 h-10 rounded-full flex items-center justify-center relative transition-transform group-hover:scale-105 ${config.iconColor}`}>
                 <Bot className="w-6 h-6" />
@@ -452,7 +454,7 @@ export function ChatInterface() {
        </div>
 
        {/* Messages */}
-       <div className="flex-1 overflow-y-auto overflow-x-hidden p-5 space-y-6 bg-slate-50/50 pb-32" ref={scrollRef}>
+       <div className="flex-1 overflow-y-auto overflow-x-hidden p-5 space-y-6 bg-slate-50/50" ref={scrollRef}>
           {error && (
              <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm mb-4 flex items-center justify-between gap-3">
                 <span>出错了: {error.message}</span>
@@ -567,18 +569,64 @@ export function ChatInterface() {
                    </div>
                 )}
                 {showFallbackReplies && (
-                   <div className="flex flex-wrap gap-2">
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider w-full mb-1">示例回复</p>
-                      {fallbackReplies.map((reply: string, i: number) => (
-                         <button
-                           key={i}
-                           type="button"
-                           onClick={() => handleSend(reply)}
-                           className="whitespace-nowrap px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-xl border border-slate-200 hover:border-slate-300 transition-colors shadow-sm font-medium"
-                         >
-                           {reply}
-                         </button>
-                      ))}
+                   <div className="space-y-2">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">示例回复</p>
+                      <div className="flex flex-wrap gap-2">
+                         {fallbackReplies.map((reply: string, i: number) => {
+                           const isExpanded = expandedReplies.has(i);
+                           const extendedPrompts = [
+                             "能详细说说为什么选择这个切入点吗？有什么具体的市场数据或案例支持？",
+                             "这个方向的具体实施步骤是什么？需要哪些资源？",
+                             "这个建议的风险点在哪里？如何规避？"
+                           ];
+                           return (
+                             <div key={i} className="flex flex-col gap-2 w-full">
+                                <div className="flex items-center gap-2">
+                                   <button
+                                      type="button"
+                                      onClick={() => handleSend(reply)}
+                                      className="flex-1 text-left px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-xl border border-slate-200 hover:border-slate-300 transition-colors shadow-sm font-medium"
+                                   >
+                                      {reply}
+                                   </button>
+                                   <button
+                                      type="button"
+                                      onClick={() => {
+                                         const newExpanded = new Set(expandedReplies);
+                                         if (isExpanded) {
+                                            newExpanded.delete(i);
+                                         } else {
+                                            newExpanded.add(i);
+                                         }
+                                         setExpandedReplies(newExpanded);
+                                      }}
+                                      className="px-3 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl border border-blue-200 hover:border-blue-300 transition-colors shadow-sm flex items-center gap-1.5 text-xs font-medium"
+                                      title="延伸提问"
+                                   >
+                                      <Sparkles className="w-3.5 h-3.5" />
+                                      {isExpanded ? '收起' : '延伸'}
+                                   </button>
+                                </div>
+                                {isExpanded && (
+                                   <div className="ml-0 pl-4 border-l-2 border-blue-200 space-y-1.5">
+                                      <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">延伸提问</p>
+                                      {extendedPrompts.map((prompt, j) => (
+                                         <button
+                                            key={j}
+                                            type="button"
+                                            onClick={() => handleSend(prompt)}
+                                            className="w-full text-left px-3 py-2 bg-blue-50/50 hover:bg-blue-50 text-slate-600 text-xs rounded-lg border border-blue-100 hover:border-blue-200 transition-colors"
+                                         >
+                                            <ChevronRight className="w-3 h-3 inline mr-1.5 text-blue-400" />
+                                            {prompt}
+                                         </button>
+                                      ))}
+                                   </div>
+                                )}
+                             </div>
+                           );
+                         })}
+                      </div>
                    </div>
                 )}
              </div>
@@ -601,7 +649,7 @@ export function ChatInterface() {
        </div>
 
        {/* Input */}
-       <div className="p-4 bg-white border-t border-slate-100 absolute bottom-0 w-full z-20">
+       <div className="flex-none p-4 bg-white border-t border-slate-100 w-full z-20">
           {/* Consultation complete banner */}
           {isConsultationComplete && (
              <div className="mb-3 px-4 py-2.5 rounded-xl bg-green-50 border border-green-100 text-sm text-green-700">
@@ -612,7 +660,7 @@ export function ChatInterface() {
           {currentAgentId === 'gxx' && !isConsultationComplete && (
              <div className="mb-3">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">推荐路径</p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
                    {GXX_PERSISTENT_STEPS.map((s) => {
                      const done = s.isDone(canvasData?.gxx);
                      return (
@@ -623,7 +671,7 @@ export function ChatInterface() {
                            setInput(s.prefill);
                            inputRef.current?.focus();
                          }}
-                         className={`px-3 py-2 text-xs rounded-lg border transition-colors ${
+                         className={`flex-shrink-0 px-3 py-2 text-xs rounded-lg border transition-colors whitespace-nowrap ${
                            done
                              ? 'bg-green-50 text-green-700 border-green-200'
                              : 'bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border-slate-200 hover:border-blue-200'

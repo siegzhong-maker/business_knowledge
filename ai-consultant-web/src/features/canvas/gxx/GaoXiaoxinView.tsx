@@ -82,7 +82,7 @@ export function GaoXiaoxinView() {
   ];
 
   return (
-    <div data-pdf-export className="w-full max-w-4xl min-w-0 bg-white shadow-lg rounded-2xl border border-slate-200 p-8 flex flex-col gap-6 min-h-[800px] fade-in relative overflow-visible">
+    <div data-pdf-export className="w-full max-w-4xl min-w-0 bg-white shadow-lg rounded-2xl border border-slate-200 p-8 flex flex-col gap-6 h-full overflow-y-auto fade-in relative">
       <div data-pdf-hide className="absolute inset-0 z-0 opacity-[0.01] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
 
       <div className="flex justify-between items-start border-b border-slate-100 pb-5 z-10">

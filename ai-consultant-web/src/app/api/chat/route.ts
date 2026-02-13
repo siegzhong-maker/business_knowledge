@@ -74,6 +74,20 @@ export async function POST(req: Request) {
     const sessionId = (body as any)?.sessionId;
     const anonymousId = typeof (body as any)?.anonymousId === 'string' ? (body as any).anonymousId : null;
 
+    // Fetch current canvas data for context
+    let currentCanvasData: any = null;
+    if (sessionId) {
+      try {
+        const session = await prisma.session.findUnique({
+          where: { id: sessionId },
+          select: { currentCanvasData: true }
+        });
+        currentCanvasData = session?.currentCanvasData;
+      } catch (e) {
+        console.error('Failed to fetch session context:', e);
+      }
+    }
+
     if (process.env.NODE_ENV !== 'production') {
       console.debug('[Chat API] Body keys:', body && typeof body === 'object' ? Object.keys(body) : typeof body);
       console.debug('[Chat API] Messages length:', Array.isArray(messages) ? messages.length : 'non-array');
@@ -144,7 +158,7 @@ export async function POST(req: Request) {
     let systemPrompt = agent.systemPrompt;
     if (key === 'gxx') {
       const context = buildGaoXiaoxinContext();
-      systemPrompt = buildGaoXiaoxinSystemPrompt(context);
+      systemPrompt = buildGaoXiaoxinSystemPrompt(context, currentCanvasData);
     }
 
     // Use Gemini 3.0 Flash on OpenRouter.
