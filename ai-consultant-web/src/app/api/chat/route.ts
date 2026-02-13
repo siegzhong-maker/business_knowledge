@@ -4,6 +4,7 @@ import { agents } from '@/features/agents/config';
 import { buildGaoXiaoxinContext } from '@/lib/gaoXiaoxinContext';
 import { buildGaoXiaoxinSystemPrompt } from '@/lib/gaoXiaoxinPrompt';
 import prisma from '@/lib/prisma';
+import type { Prisma } from '@prisma/client';
 
 // Initialize OpenRouter provider
 // Use `compatibility: 'compatible'` so that the client talks to
@@ -132,7 +133,7 @@ export async function POST(req: Request) {
                 role: 'assistant',
                 content: completion.text,
                 toolInvocations: (completion as any).toolInvocations ?? completion.steps?.flatMap((s: any) => s.toolInvocations ?? []) ?? [],
-              },
+              } as Prisma.MessageUncheckedCreateInput,
             });
           } catch (e) {
              console.error('Failed to save assistant message:', e);
