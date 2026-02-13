@@ -347,13 +347,34 @@ export function ChatInterface() {
              // Strip leaked canvas JSON from assistant replies (fallback)
              const displayText = m.role === 'assistant' && textContent ? sanitizeChatText(textContent) : textContent;
 
+             // For assistant messages, render list items as clickable cards
+             const mdComponents =
+               m.role === 'assistant'
+                 ? {
+                     li: ({ children }: { children?: React.ReactNode }) => (
+                       <li className="!list-none !my-1 !p-0 !bg-transparent !border-0 !rounded-none">
+                         <button
+                           type="button"
+                           onClick={(e) => {
+                             const text = e.currentTarget.textContent?.trim();
+                             if (text) handleSend(text);
+                           }}
+                           className="w-full text-left py-2.5 px-3 rounded-xl bg-amber-50/70 border border-amber-100 cursor-pointer hover:bg-amber-100/80 transition-colors font-medium text-slate-700"
+                         >
+                           {children}
+                         </button>
+                       </li>
+                     ),
+                   }
+                 : undefined;
+
              return (
              <div key={m.id} className={`flex gap-3 max-w-[90%] fade-in ${m.role === 'user' ? 'ml-auto flex-row-reverse' : ''}`}>
                 <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center mt-1 shadow-sm border border-slate-100 ${m.role === 'user' ? 'bg-slate-800 text-white' : config.iconColor}`}>
                    {m.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                 </div>
                 <div className={`p-3 rounded-2xl shadow-sm text-sm leading-relaxed prose prose-sm max-w-none ${m.role === 'user' ? 'prose-invert bg-slate-900 text-white rounded-tr-sm' : 'chat-assistant-message bg-white text-slate-700 rounded-tl-sm border border-slate-100'}`}>
-                   {displayText ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText}</ReactMarkdown> : null}
+                   {displayText ? <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{displayText}</ReactMarkdown> : null}
                    {/* Hide tool invocations in UI, they update the canvas */}
                 </div>
              </div>
