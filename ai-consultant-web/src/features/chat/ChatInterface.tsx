@@ -391,6 +391,10 @@ export function ChatInterface() {
              if (m.role === 'assistant' && !textContent?.trim() && hasToolParts) {
                return null;
              }
+             // 不渲染无内容的“空气泡”（用户或助手消息内容为空时）
+             if (!textContent?.trim()) {
+               return null;
+             }
 
              // Strip leaked canvas JSON from assistant replies (fallback)
              const displayText = m.role === 'assistant' && textContent ? sanitizeChatText(textContent) : textContent;
