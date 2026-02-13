@@ -5,7 +5,7 @@ import { DefaultChatTransport } from 'ai';
 import { useAgentStore } from '@/lib/store';
 import { agents } from '@/features/agents/config';
 import { useEffect, useRef, useState } from 'react';
-import { Bot, User, Send, ChevronDown, RotateCcw, Radar, LayoutGrid } from 'lucide-react';
+import { Bot, User, Send, ChevronDown, RotateCcw, Radar, LayoutGrid, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import ReactMarkdown from 'react-markdown';
@@ -26,6 +26,25 @@ function getPlaceholderForGxx(canvasData: any): string {
   const filled = [g.product, g.target, g.price, g.niche, g.diff].filter(v => !empty(v)).length;
   const step = Math.min(filled, 3);
   return PLACEHOLDER_BY_STEP[step];
+}
+
+/** Strip canvas-schema JSON code blocks from AI text (fallback when model leaks JSON into reply). */
+function sanitizeChatText(text: string): string {
+  if (!text?.trim()) return text;
+  // Match ```json ... ``` or ``` ... ``` blocks
+  const codeBlockRe = /```(?:json)?\s*([\s\S]*?)```/g;
+  const canvasSchemaKeywords = ['"product"', '"target"', '"scores"', '"actionList"', '"suggestedReplies"', '"niche"', '"diff"', '"summary"'];
+  let result = text.replace(codeBlockRe, (_, inner) => {
+    const trimmed = inner.trim();
+    if (!trimmed) return '';
+    // Heuristic: if block contains canvas schema fields, it's likely leaked canvas JSON
+    const hasCanvasFields = canvasSchemaKeywords.some(k => trimmed.includes(k));
+    if (hasCanvasFields) return ''; // Remove entirely
+    return `\`\`\`${inner}\`\`\``; // Keep other code blocks
+  });
+  // Clean up excessive newlines left by removal
+  result = result.replace(/\n{3,}/g, '\n\n').trim();
+  return result;
 }
 
 export function ChatInterface() {
@@ -284,8 +303,29 @@ export function ChatInterface() {
        {/* Messages */}
        <div className="flex-1 overflow-y-auto p-5 space-y-6 bg-slate-50/50 pb-32 no-scrollbar" ref={scrollRef}>
           {error && (
-             <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm mb-4">
-                出错了: {error.message}
+             <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm mb-4 flex items-center justify-between gap-3">
+                <span>出错了: {error.message}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0 text-red-600 border-red-200 hover:bg-red-100"
+                  onClick={() => {
+                    const lastUser = [...messages].reverse().find((m: any) => m.role === 'user') as { content?: string; parts?: { text?: string }[] } | undefined;
+                    const lastContent = typeof lastUser?.content === 'string'
+                      ? lastUser.content
+                      : (Array.isArray(lastUser?.parts)
+                        ? lastUser.parts.map(p => p.text ?? '').join('')
+                        : '');
+                    setError(undefined);
+                    if (lastContent?.trim()) {
+                      setMessages(messages.filter((m: any) => m !== lastUser));
+                      handleSend(lastContent);
+                    }
+                  }}
+                >
+                  <RefreshCw className="w-3.5 h-3.5 mr-1" />
+                  重试
+                </Button>
              </div>
           )}
           {messages.map((m: any) => {
@@ -304,13 +344,16 @@ export function ChatInterface() {
                return null;
              }
 
+             // Strip leaked canvas JSON from assistant replies (fallback)
+             const displayText = m.role === 'assistant' && textContent ? sanitizeChatText(textContent) : textContent;
+
              return (
              <div key={m.id} className={`flex gap-3 max-w-[90%] fade-in ${m.role === 'user' ? 'ml-auto flex-row-reverse' : ''}`}>
                 <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center mt-1 shadow-sm border border-slate-100 ${m.role === 'user' ? 'bg-slate-800 text-white' : config.iconColor}`}>
                    {m.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                 </div>
-                <div className={`p-3 rounded-2xl shadow-sm text-sm leading-relaxed prose prose-sm max-w-none ${m.role === 'user' ? 'prose-invert bg-slate-900 text-white rounded-tr-sm' : 'bg-white text-slate-700 rounded-tl-sm border border-slate-100'}`}>
-                   {textContent ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{textContent}</ReactMarkdown> : null}
+                <div className={`p-3 rounded-2xl shadow-sm text-sm leading-relaxed prose prose-sm max-w-none ${m.role === 'user' ? 'prose-invert bg-slate-900 text-white rounded-tr-sm' : 'chat-assistant-message bg-white text-slate-700 rounded-tl-sm border border-slate-100'}`}>
+                   {displayText ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText}</ReactMarkdown> : null}
                    {/* Hide tool invocations in UI, they update the canvas */}
                 </div>
              </div>
@@ -320,23 +363,14 @@ export function ChatInterface() {
                 <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center mt-1 shadow-sm border border-slate-100 ${config.iconColor}`}>
                    <Bot className="w-4 h-4" />
                 </div>
-                <div className="bg-white p-3 rounded-2xl rounded-tl-sm shadow-sm border border-slate-100 text-sm text-slate-700">
-                   <span className="w-1.5 h-4 bg-slate-400 inline-block animate-pulse align-middle"></span>
+                <div className="bg-white p-3 rounded-2xl rounded-tl-sm shadow-sm border border-slate-100 text-sm text-slate-700 flex items-center gap-2">
+                   <span className="text-slate-500">正在思考</span>
+                   <span className="flex gap-1">
+                     <span className="w-1.5 h-3 bg-slate-400 rounded-full animate-pulse" style={{ animationDelay: '0ms' }}></span>
+                     <span className="w-1.5 h-3 bg-slate-400 rounded-full animate-pulse" style={{ animationDelay: '200ms' }}></span>
+                     <span className="w-1.5 h-3 bg-slate-400 rounded-full animate-pulse" style={{ animationDelay: '400ms' }}></span>
+                   </span>
                 </div>
-             </div>
-          )}
-          {showSuggestedReplies && (
-             <div className="flex flex-wrap gap-2 mt-1 ml-11">
-                {suggestedReplies.map((reply: string, i: number) => (
-                   <button
-                     key={i}
-                     type="button"
-                     onClick={() => handleSend(reply)}
-                     className="whitespace-nowrap px-3 py-1.5 bg-white hover:bg-blue-50 text-blue-700 text-xs rounded-full border border-slate-200 hover:border-blue-200 transition-colors shadow-sm"
-                   >
-                     {reply}
-                   </button>
-                ))}
              </div>
           )}
        </div>
@@ -374,6 +408,22 @@ export function ChatInterface() {
                      className="whitespace-nowrap px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs rounded-full border border-blue-200 transition-colors shadow-sm font-medium"
                    >
                       {reply}
+                   </button>
+                ))}
+             </div>
+          )}
+          {/* Suggested replies from AI - above input, prominent chips */}
+          {showSuggestedReplies && (
+             <div className="flex flex-wrap gap-2 mb-3">
+                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider w-full mb-1">快捷回复</p>
+                {suggestedReplies.map((reply: string, i: number) => (
+                   <button
+                     key={i}
+                     type="button"
+                     onClick={() => handleSend(reply)}
+                     className="whitespace-nowrap px-4 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm rounded-xl border border-blue-200 hover:border-blue-300 transition-colors shadow-sm font-medium"
+                   >
+                     {reply}
                    </button>
                 ))}
              </div>
