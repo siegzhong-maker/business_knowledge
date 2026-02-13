@@ -2,6 +2,8 @@
 
 import { useAgentStore } from '@/lib/store';
 import { Download } from 'lucide-react';
+import html2canvas from 'html2canvas-pro';
+import { jsPDF } from 'jspdf';
 
 export function downloadTextFile(filename: string, content: string) {
   if (typeof window === 'undefined') return;
@@ -15,6 +17,100 @@ export function downloadTextFile(filename: string, content: string) {
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+const html2canvasOptions = {
+  scale: 2,
+  useCORS: true,
+  logging: false,
+  onclone(_: unknown, clonedEl: HTMLElement) {
+    const TEXT_TAGS = ['P', 'SPAN', 'LABEL', 'DIV', 'H1', 'H2', 'H3', 'H4', 'LI', 'STRONG', 'INPUT'];
+    const walk = (node: Element) => {
+      if (node instanceof HTMLElement) {
+        if (node.hasAttribute('data-pdf-hide')) {
+          node.style.setProperty('display', 'none', 'important');
+        } else {
+          node.style.setProperty('opacity', '1', 'important');
+          if (TEXT_TAGS.includes(node.tagName)) {
+            node.style.setProperty('color', '#1e293b', 'important');
+          }
+        }
+      }
+      for (const child of Array.from(node.children)) walk(child);
+    };
+    walk(clonedEl);
+  },
+};
+
+/** Capture report as image for preview (same visual as PDF export). Returns data URL or null. */
+export async function previewGxxReportAsImage(): Promise<string | null> {
+  const el = document.querySelector<HTMLElement>('[data-pdf-export]');
+  if (!el) return null;
+  el.scrollIntoView({ behavior: 'instant', block: 'start' });
+  await new Promise((r) => setTimeout(r, 300));
+  const canvas = await html2canvas(el, {
+    ...html2canvasOptions,
+    width: el.scrollWidth,
+    height: el.scrollHeight,
+  });
+  return canvas.toDataURL('image/png');
+}
+
+export async function exportGxxReportToPdf(): Promise<void> {
+  const el = document.querySelector<HTMLElement>('[data-pdf-export]');
+  if (!el) {
+    console.warn('PDF export target not found');
+    return;
+  }
+  el.scrollIntoView({ behavior: 'instant', block: 'start' });
+  await new Promise((r) => setTimeout(r, 300));
+  const canvas = await html2canvas(el, {
+    ...html2canvasOptions,
+    width: el.scrollWidth,
+    height: el.scrollHeight,
+  });
+  const imgData = canvas.toDataURL('image/png');
+  const pdf = new jsPDF('p', 'mm', 'a4');
+  const pw = 210;
+  const ph = 297;
+  const pxToMm = 25.4 / 96;
+  const cwMm = canvas.width * pxToMm;
+  const chMm = canvas.height * pxToMm;
+  const ratio = Math.min(pw / cwMm, ph / chMm) * 0.95;
+  const w = cwMm * ratio;
+  const h = chMm * ratio;
+  const x = (pw - w) / 2;
+  const y = (ph - h) / 2;
+  pdf.addImage(imgData, 'PNG', x, y, w, h);
+  const date = new Date().toISOString().slice(0, 10);
+  pdf.save(`商业可行性诊断书-${date}.pdf`);
+}
+
+function showExportFeedback(type: 'success' | 'error', message: string) {
+  if (type === 'error') {
+    alert(`PDF 导出失败：${message}`);
+    return;
+  }
+  const el = document.createElement('div');
+  el.textContent = message;
+  el.className = 'fixed bottom-20 left-1/2 -translate-x-1/2 px-4 py-2 bg-slate-800 text-white text-sm rounded-lg shadow-lg z-[60]';
+  document.body.appendChild(el);
+  setTimeout(() => {
+    el.remove();
+  }, 2000);
+}
+
+export function useExportPdf() {
+  return async () => {
+    try {
+      await exportGxxReportToPdf();
+      showExportFeedback('success', 'PDF 已导出');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('PDF export failed:', err);
+      showExportFeedback('error', msg);
+    }
+  };
 }
 
 function formatGxxMarkdown(data: any) {

@@ -15,16 +15,20 @@ model User {
 }
 
 model Session {
-  id        String    @id @default(uuid())
-  userId    String?
-  user      User?     @relation(fields: [userId], references: [id])
-  agentId   String    // 'gxx' or 'bmc'
-  title     String?
+  id               String    @id @default(uuid())
+  userId           String?
+  user             User?     @relation(fields: [userId], references: [id])
+  anonymousId      String?   // Phase 1: anonymous identity (no login)
+  agentId          String    // 'gxx' or 'bmc'
+  title            String?
   currentCanvasData Json?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  messages  Message[]
-  reports   Report[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  messages         Message[]
+  reports          Report[]
+
+  @@index([anonymousId, updatedAt(sort: Desc)])
+  @@index([userId, updatedAt(sort: Desc)])
 }
 
 model Message {

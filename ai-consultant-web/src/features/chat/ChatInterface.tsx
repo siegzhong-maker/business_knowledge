@@ -6,6 +6,7 @@ import { useAgentStore } from '@/lib/store';
 import { agents } from '@/features/agents/config';
 import React, { useEffect, useRef, useState } from 'react';
 import { Bot, User, Send, ChevronDown, RotateCcw, Radar, LayoutGrid, RefreshCw } from 'lucide-react';
+import { SessionListDropdown } from '@/features/sessions/SessionList';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import ReactMarkdown from 'react-markdown';
@@ -28,18 +29,59 @@ function getPlaceholderForGxx(canvasData: any): string {
   return PLACEHOLDER_BY_STEP[step];
 }
 
-/** Strip canvas-schema JSON code blocks from AI text (fallback when model leaks JSON into reply). */
+const GXX_PERSISTENT_STEPS = [
+  { key: 'productTarget', label: '① 产品+客群', prefill: '我的产品是________，主要面向________。', isDone: (g: any) => {
+    const e = (v: unknown) => v == null || v === '' || v === '等待输入...';
+    return !e(g?.product) && !e(g?.target);
+  }},
+  { key: 'niche', label: '② 破局点', prefill: '我的破局切入点是________。', isDone: (g: any) => {
+    const e = (v: unknown) => v == null || v === '' || v === '等待输入...';
+    return !e(g?.niche);
+  }},
+  { key: 'diff', label: '③ 差异化', prefill: '我的核心差异化是________。', isDone: (g: any) => {
+    const e = (v: unknown) => v == null || v === '' || v === '等待输入...';
+    return !e(g?.diff);
+  }},
+];
+
+function getFallbackSuggestedReplies(canvasData: any): string[] {
+  if (!canvasData?.gxx) return [];
+  const g = canvasData.gxx;
+  const empty = (v: unknown) => v == null || v === "" || v === "等待输入...";
+  const hasProduct = !empty(g.product);
+  const hasTarget = !empty(g.target);
+  const hasPrice = !empty(g.price);
+  const hasNiche = !empty(g.niche);
+  const hasDiff = !empty(g.diff);
+  if (hasProduct && hasTarget && hasPrice && hasNiche && hasDiff) return [];
+  if (!hasProduct || !hasTarget) return [];
+  if (!hasNiche) {
+    return ["先切入律师中的诉讼律师，他们查阅法条最频繁", "先做一线城市律所合伙人，再扩展"];
+  }
+  if (!hasDiff) {
+    return ["主打无摄像头隐私设计，客户在敏感场合也能用", "差异化是即时调取法条，比翻书快 10 倍"];
+  }
+  if (!hasPrice) {
+    return ["客单价约 5 万/年，订阅制", "按年付费，单客 3–8 万不等"];
+  }
+  return [];
+}
+
+/** Strip canvas-schema JSON and updateCanvas tool calls from AI text (fallback when model leaks into reply). */
 function sanitizeChatText(text: string): string {
   if (!text?.trim()) return text;
   // 1. Match ```json ... ``` or ``` ... ``` blocks
   const codeBlockRe = /```(?:json)?\s*([\s\S]*?)```/g;
   const canvasSchemaKeywords = ['"product"', '"target"', '"scores"', '"actionList"', '"suggestedReplies"', '"niche"', '"diff"', '"summary"'];
+  const updateCanvasFieldNames = ['product', 'target', 'niche', 'diff', 'price', 'summary'];
   let result = text.replace(codeBlockRe, (_, inner) => {
     const trimmed = inner.trim();
     if (!trimmed) return '';
-    // Heuristic: if block contains canvas schema fields, it's likely leaked canvas JSON
+    // Heuristic: if block contains canvas schema fields (JSON format), remove
     const hasCanvasFields = canvasSchemaKeywords.some(k => trimmed.includes(k));
-    if (hasCanvasFields) return ''; // Remove entirely
+    // Heuristic: if block is updateCanvas(...) with product/target/etc (any format), remove
+    const isUpdateCanvasBlock = trimmed.includes('updateCanvas') && updateCanvasFieldNames.some(f => trimmed.includes(f + '=') || trimmed.includes(f + ':'));
+    if (hasCanvasFields || isUpdateCanvasBlock) return ''; // Remove entirely
     return `\`\`\`${inner}\`\`\``; // Keep other code blocks
   });
 
@@ -54,6 +96,10 @@ function sanitizeChatText(text: string): string {
     }
     return match;
   });
+
+  // 3. Strip leaked updateCanvas tool calls (inline or multiline: updateCanvas(product: "x", target="y") etc.)
+  const updateCanvasRe = /updateCanvas\s*\([\s\S]*?\)/g;
+  result = result.replace(updateCanvasRe, '');
 
   // Clean up excessive newlines left by removal
   result = result.replace(/\n{3,}/g, '\n\n').trim();
@@ -77,19 +123,18 @@ function isPlaceholderLikeListItem(text: string): boolean {
 }
 
 export function ChatInterface() {
-  const { currentAgentId, setAgent, updateCanvasData, canvasData, sessionId, setSessionId, resetCanvas, setChatLoading } = useAgentStore();
+  const { currentAgentId, setAgent, updateCanvasData, canvasData, sessionId, setSessionId, anonymousId, setAnonymousId, resetCanvas, setChatLoading } = useAgentStore();
   const config = agents[currentAgentId];
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const [error, setError] = useState<Error | undefined>(undefined);
   
-  // Initialize session ID
+  // Initialize session ID and anonymous identity (for session list ownership)
   useEffect(() => {
-    if (!sessionId) {
-      setSessionId(uuidv4());
-    }
-  }, [sessionId, setSessionId]);
+    if (!sessionId) setSessionId(uuidv4());
+    if (!anonymousId) setAnonymousId(uuidv4());
+  }, [sessionId, setSessionId, anonymousId, setAnonymousId]);
 
   const { messages, sendMessage, setMessages, status } = useChat({
     transport: new DefaultChatTransport({
@@ -109,6 +154,46 @@ export function ChatInterface() {
        // Tool invocations are handled by the useEffect below
     }
   });
+
+  // Hydrate session from server on load (restores messages and canvas)
+  useEffect(() => {
+    if (!sessionId) return;
+    
+    // Only fetch if we haven't loaded messages yet (or to force sync)
+    // For now, simple fetch on mount/sessionId change
+    const fetchSession = async () => {
+      try {
+        const params = new URLSearchParams({ sessionId });
+        if (anonymousId) params.set('anonymousId', anonymousId);
+        const res = await fetch(`/api/chat?${params.toString()}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // 1. Restore Messages
+        if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
+          const restoredMessages = data.messages.map((m: any) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            // Map Prisma toolInvocations to UI shape if needed
+            // useChat handles 'toolInvocations' property on message object
+            toolInvocations: m.toolInvocations, 
+            createdAt: new Date(m.createdAt)
+          }));
+          setMessages(restoredMessages);
+        }
+
+        // 2. Restore Canvas
+        if (data.canvasData && data.agentId) {
+          updateCanvasData(data.agentId, data.canvasData);
+        }
+      } catch (error) {
+        console.warn('Failed to hydrate session from server:', error);
+      }
+    };
+
+    fetchSession();
+  }, [sessionId, anonymousId, setMessages, updateCanvasData]);
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
@@ -139,9 +224,10 @@ export function ChatInterface() {
       await sendMessage(
         { text: value },
         {
-          body: { 
+          body: {
             agentId: currentAgentId,
-            sessionId: sessionId
+            sessionId: sessionId,
+            ...(anonymousId && { anonymousId }),
           },
         },
       );
@@ -174,6 +260,9 @@ export function ChatInterface() {
     !isLoading && lastIsAssistant && suggestedReplies.length > 0;
 
   const isConsultationComplete = currentAgentId === 'gxx' && canvasData?.gxx?.summary && Array.isArray(canvasData.gxx.actionList) && canvasData.gxx.actionList.length > 0;
+  const fallbackReplies = currentAgentId === 'gxx' ? getFallbackSuggestedReplies(canvasData) : [];
+  const showFallbackReplies =
+    !isLoading && lastIsAssistant && suggestedReplies.length === 0 && fallbackReplies.length > 0 && !isConsultationComplete;
   const chatPlaceholder =
     isConsultationComplete
       ? "可继续追问或导出报告..."
@@ -218,29 +307,40 @@ export function ChatInterface() {
     };
 
     // 2. Handle 'parts' (newer SDK: tool-invocation legacy shape or dynamic-tool / tool-* types)
-    // Cast to PartLike[] so TS doesn't narrow part.type to only 'text' (SDK types can be strict)
     type PartLike = {
       type: string;
-      toolInvocation?: { toolName?: string; state?: string; result?: unknown };
+      toolInvocation?: { toolName?: string; state?: string; result?: unknown; output?: unknown };
       toolName?: string;
       state?: string;
       output?: unknown;
+      result?: unknown;
     };
     const parts: PartLike[] = Array.isArray(latestMsg.parts) ? (latestMsg.parts as PartLike[]) : [];
     for (const p of parts) {
+      const toolResult = (x: PartLike): unknown => {
+        if (x.toolInvocation && (x.toolInvocation.result !== undefined || x.toolInvocation.output !== undefined)) {
+          return x.toolInvocation.result ?? x.toolInvocation.output;
+        }
+        if (x.output !== undefined || x.result !== undefined) return x.output ?? x.result;
+        return undefined;
+      };
       // Legacy 'tool-invocation' shape
-      if ((p as PartLike).type === 'tool-invocation' && p.toolInvocation) {
-        const toolName = p.toolInvocation.toolName?.toLowerCase();
-        if (toolName === 'updatecanvas' && p.toolInvocation.state === 'result') {
-          safeUpdateCanvas(currentAgentId, p.toolInvocation.result);
+      if (p.type === 'tool-invocation' && p.toolInvocation) {
+        const name = p.toolInvocation.toolName?.toLowerCase();
+        if (name === 'updatecanvas') {
+          const result = p.toolInvocation.result ?? p.toolInvocation.output;
+          if (result != null && (p.toolInvocation.state === 'result' || p.toolInvocation.state === 'output-available' || result !== undefined)) {
+            safeUpdateCanvas(currentAgentId, result);
+          }
         }
         continue;
       }
-      // SDK 6 dynamic-tool / tool-* part (e.g. type === 'dynamic-tool' or 'tool-updateCanvas')
-      if ((p.type === 'dynamic-tool' || p.type?.startsWith('tool-')) && (p.toolName || p.type?.replace(/^tool-/, ''))) {
-        const name = (p.toolName ?? p.type.replace(/^tool-/, '')).toLowerCase();
-        if (name === 'updatecanvas' && (p.state === 'output-available' || p.state === 'result') && p.output !== undefined) {
-          safeUpdateCanvas(currentAgentId, p.output);
+      // SDK 6 dynamic-tool / tool-* part
+      if (p.type === 'dynamic-tool' || p.type?.startsWith('tool-')) {
+        const name = (p.toolName ?? p.type?.replace(/^tool-/, '') ?? '').toLowerCase();
+        if (name === 'updatecanvas') {
+          const out = toolResult(p);
+          if (out != null) safeUpdateCanvas(currentAgentId, out);
         }
       }
     }
@@ -324,32 +424,35 @@ export function ChatInterface() {
                 </div>
              </div>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-slate-400 hover:text-slate-600"
-            onClick={() => {
-              // 1. Clear messages (reset to welcome)
-              setMessages(
-                config.welcomeMessages.map((m, i) => ({
-                  id: `welcome-${config.id}-${i}`,
-                  role: 'assistant',
-                  parts: [{ type: 'text', text: m }],
-                }))
-              );
-              // 2. Reset Canvas
-              resetCanvas(currentAgentId);
-              // 3. New Session ID
-              setSessionId(uuidv4());
-            }}
-            title="重置会话"
-          >
-             <RotateCcw className="w-5 h-5" />
-          </Button>
+          <div className="flex items-center gap-1">
+            <SessionListDropdown />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="text-slate-400 hover:text-slate-600"
+              onClick={() => {
+                // 1. Clear messages (reset to welcome)
+                setMessages(
+                  config.welcomeMessages.map((m, i) => ({
+                    id: `welcome-${config.id}-${i}`,
+                    role: 'assistant',
+                    parts: [{ type: 'text', text: m }],
+                  }))
+                );
+                // 2. Reset Canvas
+                resetCanvas(currentAgentId);
+                // 3. New Session ID
+                setSessionId(uuidv4());
+              }}
+              title="新建会话"
+            >
+              <RotateCcw className="w-5 h-5" />
+            </Button>
+          </div>
        </div>
 
        {/* Messages */}
-       <div className="flex-1 overflow-y-auto overflow-x-hidden p-5 space-y-6 bg-slate-50/50 pb-40" ref={scrollRef}>
+       <div className="flex-1 overflow-y-auto overflow-x-hidden p-5 space-y-6 bg-slate-50/50 pb-32" ref={scrollRef}>
           {error && (
              <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm mb-4 flex items-center justify-between gap-3">
                 <span>出错了: {error.message}</span>
@@ -445,6 +548,41 @@ export function ChatInterface() {
                 </div>
              </div>
           )})}
+          {/* Suggested / fallback replies inside scroll area - avoid blocking conversation */}
+          {(showSuggestedReplies || showFallbackReplies) && (
+             <div className="pt-2 space-y-2">
+                {showSuggestedReplies && (
+                   <div className="flex flex-wrap gap-2">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider w-full mb-1">快捷回复</p>
+                      {suggestedReplies.map((reply: string, i: number) => (
+                         <button
+                           key={i}
+                           type="button"
+                           onClick={() => handleSend(reply)}
+                           className="whitespace-nowrap px-4 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm rounded-xl border border-blue-200 hover:border-blue-300 transition-colors shadow-sm font-medium"
+                         >
+                           {reply}
+                         </button>
+                      ))}
+                   </div>
+                )}
+                {showFallbackReplies && (
+                   <div className="flex flex-wrap gap-2">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider w-full mb-1">示例回复</p>
+                      {fallbackReplies.map((reply: string, i: number) => (
+                         <button
+                           key={i}
+                           type="button"
+                           onClick={() => handleSend(reply)}
+                           className="whitespace-nowrap px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-xl border border-slate-200 hover:border-slate-300 transition-colors shadow-sm font-medium"
+                         >
+                           {reply}
+                         </button>
+                      ))}
+                   </div>
+                )}
+             </div>
+          )}
           {isLoading && ((messages[messages.length - 1] as any)?.role === 'user') && (
              <div className="flex gap-3 max-w-[90%] fade-in">
                 <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center mt-1 shadow-sm border border-slate-100 ${config.iconColor}`}>
@@ -470,24 +608,31 @@ export function ChatInterface() {
                咨询已完成，可继续追问或导出报告
              </div>
           )}
-          {/* Step guide - when only welcome messages */}
-          {isWelcomeOnly && config.guidedSteps && config.guidedSteps.length > 0 && (
+          {/* Step guide - persistent for gxx until consultation complete */}
+          {currentAgentId === 'gxx' && !isConsultationComplete && (
              <div className="mb-3">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">推荐路径</p>
                 <div className="flex flex-wrap gap-2">
-                   {config.guidedSteps.map((s) => (
-                      <button
-                        key={s.step}
-                        type="button"
-                        onClick={() => {
-                          setInput(s.prefill);
-                          inputRef.current?.focus();
-                        }}
-                        className="px-3 py-2 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 text-xs rounded-lg border border-slate-200 hover:border-blue-200 transition-colors"
-                      >
-                        {s.label}
-                      </button>
-                   ))}
+                   {GXX_PERSISTENT_STEPS.map((s) => {
+                     const done = s.isDone(canvasData?.gxx);
+                     return (
+                       <button
+                         key={s.key}
+                         type="button"
+                         onClick={() => {
+                           setInput(s.prefill);
+                           inputRef.current?.focus();
+                         }}
+                         className={`px-3 py-2 text-xs rounded-lg border transition-colors ${
+                           done
+                             ? 'bg-green-50 text-green-700 border-green-200'
+                             : 'bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border-slate-200 hover:border-blue-200'
+                         }`}
+                       >
+                         {done ? `${s.label} ✓` : s.label}
+                       </button>
+                     );
+                   })}
                 </div>
              </div>
           )}
@@ -501,22 +646,6 @@ export function ChatInterface() {
                      className="whitespace-nowrap px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs rounded-full border border-blue-200 transition-colors shadow-sm font-medium"
                    >
                       {reply}
-                   </button>
-                ))}
-             </div>
-          )}
-          {/* Suggested replies from AI - above input, prominent chips */}
-          {showSuggestedReplies && (
-             <div className="flex flex-wrap gap-2 mb-3">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider w-full mb-1">快捷回复</p>
-                {suggestedReplies.map((reply: string, i: number) => (
-                   <button
-                     key={i}
-                     type="button"
-                     onClick={() => handleSend(reply)}
-                     className="whitespace-nowrap px-4 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm rounded-xl border border-blue-200 hover:border-blue-300 transition-colors shadow-sm font-medium"
-                   >
-                     {reply}
                    </button>
                 ))}
              </div>

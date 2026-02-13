@@ -6,13 +6,15 @@ import { UIMessage as Message } from 'ai';
 export interface AgentState {
   currentAgentId: string;
   sessionId: string | null;
+  anonymousId: string | null; // Phase 1: stable identity for session list (no login)
   messages: Message[];
   chatLoading: boolean;
   // Store canvas data for each agent: { gxx: {...}, bmc: {...} }
   canvasData: Record<string, any>;
-  
+
   setAgent: (agentId: string) => void;
   setSessionId: (sessionId: string) => void;
+  setAnonymousId: (anonymousId: string) => void;
   setMessages: (messages: Message[]) => void;
   setChatLoading: (loading: boolean) => void;
   addMessage: (message: Message) => void;
@@ -25,6 +27,7 @@ export const useAgentStore = create<AgentState>()(
     (set) => ({
       currentAgentId: 'gxx',
       sessionId: null,
+      anonymousId: null,
       messages: [],
       chatLoading: false,
       canvasData: {
@@ -34,6 +37,7 @@ export const useAgentStore = create<AgentState>()(
 
       setAgent: (agentId) => set({ currentAgentId: agentId, messages: [] }), // Reset chat on switch for now
       setSessionId: (sessionId) => set({ sessionId }),
+      setAnonymousId: (anonymousId) => set({ anonymousId }),
       setMessages: (messages) => set({ messages }),
       setChatLoading: (chatLoading) => set({ chatLoading }),
       addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
@@ -58,9 +62,10 @@ export const useAgentStore = create<AgentState>()(
     {
       name: 'ai-consultant-storage', // name of the item in the storage (must be unique)
       storage: createJSONStorage(() => localStorage), // (optional) by default, 'localStorage' is used
-      partialize: (state) => ({ 
+      partialize: (state) => ({
         currentAgentId: state.currentAgentId,
         sessionId: state.sessionId,
+        anonymousId: state.anonymousId,
         messages: state.messages,
         canvasData: state.canvasData
       }),

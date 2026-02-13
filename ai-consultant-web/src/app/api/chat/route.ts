@@ -21,6 +21,48 @@ const openrouter = createOpenAI({
 
 export const maxDuration = 60;
 
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const sessionId = searchParams.get('sessionId');
+  const anonymousId = searchParams.get('anonymousId');
+
+  if (!sessionId) {
+    return new Response('Missing sessionId', { status: 400 });
+  }
+
+  try {
+    const session = await prisma.session.findUnique({
+      where: { id: sessionId },
+      include: {
+        messages: {
+          orderBy: { createdAt: 'asc' }
+        }
+      }
+    });
+
+    if (!session) {
+      return new Response('Session not found', { status: 404 });
+    }
+
+    const sessionWithOptional = session as typeof session & { anonymousId?: string | null; currentCanvasData?: unknown };
+    // Optional ownership check: if both session and request have anonymousId, they must match
+    if (anonymousId != null && anonymousId !== '' && sessionWithOptional.anonymousId != null && sessionWithOptional.anonymousId !== anonymousId) {
+      return new Response('Forbidden', { status: 403 });
+    }
+
+    return new Response(JSON.stringify({
+      messages: session.messages,
+      canvasData: sessionWithOptional.currentCanvasData ?? null,
+      agentId: session.agentId
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Fetch Session Error:', error);
+    return new Response('Internal Server Error', { status: 500 });
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -30,6 +72,7 @@ export async function POST(req: Request) {
     const messages = Array.isArray(rawMessages) ? rawMessages : [];
     const agentId = (body as any)?.agentId;
     const sessionId = (body as any)?.sessionId;
+    const anonymousId = typeof (body as any)?.anonymousId === 'string' ? (body as any).anonymousId : null;
 
     if (process.env.NODE_ENV !== 'production') {
       console.debug('[Chat API] Body keys:', body && typeof body === 'object' ? Object.keys(body) : typeof body);
@@ -55,19 +98,31 @@ export async function POST(req: Request) {
       return new Response('Agent not found', { status: 404 });
     }
 
+    // Get plain text from a message (supports both content and parts-based UIMessage shape)
+    const getMessageText = (msg: { content?: string; parts?: Array<{ type?: string; text?: string }> }): string => {
+      if (typeof msg?.content === 'string') return msg.content;
+      if (Array.isArray(msg?.parts)) return (msg.parts as Array<{ text?: string }>).map((p) => p.text ?? '').join('').trim();
+      return '';
+    };
+
     // Save user message to DB
     if (sessionId && messages.length > 0) {
-      const lastMessage = messages[messages.length - 1];
+      const lastMessage = messages[messages.length - 1] as { role?: string; content?: string; parts?: Array<{ type?: string; text?: string }> };
       if (lastMessage.role === 'user') {
+        const lastContent = getMessageText(lastMessage);
         try {
           // Ensure session exists
           await prisma.session.upsert({
             where: { id: sessionId },
-            update: { updatedAt: new Date() },
+            update: {
+              updatedAt: new Date(),
+              ...(anonymousId != null && { anonymousId }),
+            },
             create: {
               id: sessionId,
               agentId: key,
-              title: lastMessage.content.substring(0, 50), // Simple title from first message
+              title: lastContent ? lastContent.substring(0, 50) : '新会话',
+              ...(anonymousId != null && { anonymousId }),
             },
           });
 
@@ -75,7 +130,7 @@ export async function POST(req: Request) {
             data: {
               sessionId,
               role: 'user',
-              content: lastMessage.content,
+              content: lastContent || '(无文本)',
             },
           });
         } catch (dbError) {
@@ -111,7 +166,7 @@ export async function POST(req: Request) {
                  // Update Session with latest canvas data
                  await prisma.session.update({
                     where: { id: sessionId },
-                    data: { currentCanvasData: data }
+                    data: { currentCanvasData: data } as Prisma.SessionUpdateInput,
                  });
 
                  await prisma.report.create({
