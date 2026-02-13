@@ -101,13 +101,19 @@ export async function POST(req: Request) {
       tools: {
         updateCanvas: tool({
           description:
-            'Update the business canvas with structured data from the conversation. Call whenever you gather or refine any of product/target/price/niche/diff. Partial updates are supported: send only the fields you know; omit others.',
+            '根据对话内容更新商业画布的结构化数据。每当收集或细化 product/target/price/niche/diff 中任意字段时调用。支持部分更新：只传已知字段，未知的可省略。',
           parameters: agent.schema,
           execute: async (data: any) => {
             // This execution happens on the server.
             // Save canvas snapshot to DB
             if (sessionId) {
                try {
+                 // Update Session with latest canvas data
+                 await prisma.session.update({
+                    where: { id: sessionId },
+                    data: { currentCanvasData: data }
+                 });
+
                  await prisma.report.create({
                    data: {
                      sessionId,

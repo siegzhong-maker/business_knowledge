@@ -20,6 +20,7 @@ model Session {
   user      User?     @relation(fields: [userId], references: [id])
   agentId   String    // 'gxx' or 'bmc'
   title     String?
+  currentCanvasData Json?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   messages  Message[]
