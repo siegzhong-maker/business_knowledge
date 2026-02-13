@@ -34,6 +34,12 @@ const html2canvasOptions = {
           if (TEXT_TAGS.includes(node.tagName)) {
             node.style.setProperty('color', '#1e293b', 'important');
           }
+          // Remove max-height constraints on scrollable containers to ensure full content is captured
+          const computedStyle = window.getComputedStyle(node);
+          if (computedStyle.overflowY === 'auto' || computedStyle.overflowY === 'scroll') {
+            node.style.setProperty('max-height', 'none', 'important');
+            node.style.setProperty('overflow-y', 'visible', 'important');
+          }
         }
       }
       for (const child of Array.from(node.children)) walk(child);
@@ -46,14 +52,37 @@ const html2canvasOptions = {
 export async function previewGxxReportAsImage(): Promise<string | null> {
   const el = document.querySelector<HTMLElement>('[data-pdf-export]');
   if (!el) return null;
+  
+  // Store original styles
+  const originalHeight = el.style.height;
+  const originalOverflow = el.style.overflow;
+  const originalMaxHeight = el.style.maxHeight;
+  
+  // Temporarily remove height constraints to ensure full content is captured
+  el.style.height = 'auto';
+  el.style.overflow = 'visible';
+  el.style.maxHeight = 'none';
+  
+  // Scroll to top to ensure we capture from the beginning
   el.scrollIntoView({ behavior: 'instant', block: 'start' });
+  el.scrollTop = 0;
+  
+  // Wait for layout to settle
   await new Promise((r) => setTimeout(r, 300));
-  const canvas = await html2canvas(el, {
-    ...html2canvasOptions,
-    width: el.scrollWidth,
-    height: el.scrollHeight,
-  });
-  return canvas.toDataURL('image/png');
+  
+  try {
+    const canvas = await html2canvas(el, {
+      ...html2canvasOptions,
+      width: el.scrollWidth,
+      height: el.scrollHeight,
+    });
+    return canvas.toDataURL('image/png');
+  } finally {
+    // Restore original styles
+    el.style.height = originalHeight;
+    el.style.overflow = originalOverflow;
+    el.style.maxHeight = originalMaxHeight;
+  }
 }
 
 export async function exportGxxReportToPdf(): Promise<void> {
@@ -62,28 +91,51 @@ export async function exportGxxReportToPdf(): Promise<void> {
     console.warn('PDF export target not found');
     return;
   }
+  
+  // Store original styles
+  const originalHeight = el.style.height;
+  const originalOverflow = el.style.overflow;
+  const originalMaxHeight = el.style.maxHeight;
+  
+  // Temporarily remove height constraints to ensure full content is captured
+  el.style.height = 'auto';
+  el.style.overflow = 'visible';
+  el.style.maxHeight = 'none';
+  
+  // Scroll to top to ensure we capture from the beginning
   el.scrollIntoView({ behavior: 'instant', block: 'start' });
+  el.scrollTop = 0;
+  
+  // Wait for layout to settle
   await new Promise((r) => setTimeout(r, 300));
-  const canvas = await html2canvas(el, {
-    ...html2canvasOptions,
-    width: el.scrollWidth,
-    height: el.scrollHeight,
-  });
-  const imgData = canvas.toDataURL('image/png');
-  const pdf = new jsPDF('p', 'mm', 'a4');
-  const pw = 210;
-  const ph = 297;
-  const pxToMm = 25.4 / 96;
-  const cwMm = canvas.width * pxToMm;
-  const chMm = canvas.height * pxToMm;
-  const ratio = Math.min(pw / cwMm, ph / chMm) * 0.95;
-  const w = cwMm * ratio;
-  const h = chMm * ratio;
-  const x = (pw - w) / 2;
-  const y = (ph - h) / 2;
-  pdf.addImage(imgData, 'PNG', x, y, w, h);
-  const date = new Date().toISOString().slice(0, 10);
-  pdf.save(`商业可行性诊断书-${date}.pdf`);
+  
+  try {
+    const canvas = await html2canvas(el, {
+      ...html2canvasOptions,
+      width: el.scrollWidth,
+      height: el.scrollHeight,
+    });
+    const imgData = canvas.toDataURL('image/png');
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pw = 210;
+    const ph = 297;
+    const pxToMm = 25.4 / 96;
+    const cwMm = canvas.width * pxToMm;
+    const chMm = canvas.height * pxToMm;
+    const ratio = Math.min(pw / cwMm, ph / chMm) * 0.95;
+    const w = cwMm * ratio;
+    const h = chMm * ratio;
+    const x = (pw - w) / 2;
+    const y = (ph - h) / 2;
+    pdf.addImage(imgData, 'PNG', x, y, w, h);
+    const date = new Date().toISOString().slice(0, 10);
+    pdf.save(`商业可行性诊断书-${date}.pdf`);
+  } finally {
+    // Restore original styles
+    el.style.height = originalHeight;
+    el.style.overflow = originalOverflow;
+    el.style.maxHeight = originalMaxHeight;
+  }
 }
 
 function showExportFeedback(type: 'success' | 'error', message: string) {
