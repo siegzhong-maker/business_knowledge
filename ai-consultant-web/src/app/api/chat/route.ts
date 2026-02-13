@@ -34,6 +34,18 @@ export async function POST(req: Request) {
       console.debug('[Chat API] Body keys:', body && typeof body === 'object' ? Object.keys(body) : typeof body);
       console.debug('[Chat API] Messages length:', Array.isArray(messages) ? messages.length : 'non-array');
       console.debug('[Chat API] Session ID:', sessionId);
+      // Validate last message is from user and log summary for debugging context-order issues
+      if (messages.length > 0) {
+        const last = messages[messages.length - 1] as { role?: string; content?: string; parts?: Array<{ type?: string; text?: string }> };
+        const lastIsUser = last?.role === 'user';
+        console.debug('[Chat API] Last message role is user:', lastIsUser);
+        const lastContent = typeof last?.content === 'string'
+          ? last.content
+          : Array.isArray(last?.parts)
+            ? (last.parts as Array<{ text?: string }>).map((p) => p.text ?? '').join('')
+            : '';
+        console.debug('[Chat API] Last user message (first 100 chars):', lastContent.substring(0, 100));
+      }
     }
 
     const key = (agentId || 'gxx') as keyof typeof agents;
@@ -119,7 +131,7 @@ export async function POST(req: Request) {
                 sessionId,
                 role: 'assistant',
                 content: completion.text,
-                // We could also store tool calls if needed, but keeping it simple for now
+                toolInvocations: (completion as any).toolInvocations ?? completion.steps?.flatMap((s: any) => s.toolInvocations ?? []) ?? [],
               },
             });
           } catch (e) {
