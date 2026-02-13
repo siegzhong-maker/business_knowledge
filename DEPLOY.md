@@ -32,6 +32,7 @@
 | 名称 | 值 | 说明 |
 |------|-----|------|
 | `OPENROUTER_API_KEY` | `sk-or-...` | 必填。在 [OpenRouter](https://openrouter.ai) 获取的 API Key，用于聊天接口 |
+| `DATABASE_URL` | Supabase 连接串 | 必填。Supabase **Session Pooler** 连接串（端口 5432），与本地 `.env` 中一致；密码中若有 `@` 需写成 `%40` |
 
 可选：
 
@@ -77,8 +78,8 @@ vercel --prod
 ## 四、部署后检查
 
 1. 打开 Vercel 提供的站点 URL
-2. 在页面中发起一次对话；若未配置或配置错误的 `OPENROUTER_API_KEY`，聊天会报错
-3. 在 Vercel 项目 **Settings → Environment Variables** 中确认 `OPENROUTER_API_KEY` 已正确填写并已对 Production 生效
+2. 在页面中发起一次对话；若未配置或配置错误的 `OPENROUTER_API_KEY`，聊天会报错；若出现 500，可到 Vercel 的 **Functions** 日志查看是否为数据库连接错误
+3. 在 Vercel 项目 **Settings → Environment Variables** 中确认 `OPENROUTER_API_KEY` 与 `DATABASE_URL` 已正确填写并已对 Production 生效
 
 ---
 
@@ -87,8 +88,11 @@ vercel --prod
 - **构建失败 / 找不到 Next.js**  
   确认 **Root Directory** 已设为 **`ai-consultant-web`**，而不是仓库根目录。
 
+- **构建失败 / Turbopack 报错（如 creating new process、binding to a port）**  
+  项目已使用 `next build --webpack`，在 Vercel 上使用 Webpack 而非 Turbopack 进行构建。若在 Vercel 中自定义了 **Build Command**，请保持为 `npm run build`（不要改成 `next build`）。
+
 - **聊天接口 500 / 未授权**  
   在 Vercel 中检查 **Environment Variables** 里的 `OPENROUTER_API_KEY` 是否正确，并重新部署一次使环境变量生效。
 
 - **Prisma / 数据库**  
-  当前前端未在运行时使用 Prisma 连接数据库，仅聊天依赖 OpenRouter；若以后接入数据库，需在 Vercel 中配置 `DATABASE_URL` 等变量。
+  聊天已使用 Prisma 写入 Supabase。若聊天 500 或报错，请检查 Vercel 中 `DATABASE_URL` 是否与 Supabase Session Pooler（端口 5432）一致、是否对当前环境生效，并重新部署。

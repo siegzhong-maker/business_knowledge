@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { v4 as uuidv4 } from 'uuid';
 
 const PLACEHOLDER_BY_STEP: Record<number, string> = {
   0: "描述一下产品形态、准备卖给谁…",
@@ -28,13 +29,20 @@ function getPlaceholderForGxx(canvasData: any): string {
 }
 
 export function ChatInterface() {
-  const { currentAgentId, setAgent, updateCanvasData, canvasData } = useAgentStore();
+  const { currentAgentId, setAgent, updateCanvasData, canvasData, sessionId, setSessionId } = useAgentStore();
   const config = agents[currentAgentId];
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const [error, setError] = useState<Error | undefined>(undefined);
   
+  // Initialize session ID
+  useEffect(() => {
+    if (!sessionId) {
+      setSessionId(uuidv4());
+    }
+  }, [sessionId, setSessionId]);
+
   const { messages, sendMessage, setMessages, status } = useChat({
     transport: new DefaultChatTransport({
       api: '/api/chat',
@@ -79,7 +87,10 @@ export function ChatInterface() {
       await sendMessage(
         { text: value },
         {
-          body: { agentId: currentAgentId },
+          body: { 
+            agentId: currentAgentId,
+            sessionId: sessionId
+          },
         },
       );
     } catch (err) {
@@ -130,24 +141,38 @@ export function ChatInterface() {
       updateCanvasData(agentId, normalizedData);
     };
 
-    // 2. Handle 'parts' (newer SDK)
-    if (Array.isArray(latestMsg.parts)) {
-      for (const part of latestMsg.parts) {
-        // Check for 'tool-invocation' structure in SDK 3.x/4.x
-        if (part?.type === 'tool-invocation') {
-             const toolName = part.toolInvocation?.toolName?.toLowerCase();
-             if (toolName === 'updatecanvas') {
-                 if (part.toolInvocation.state === 'result') {
-                     safeUpdateCanvas(currentAgentId, part.toolInvocation.result);
-                 }
-             }
+    // 2. Handle 'parts' (newer SDK: tool-invocation legacy shape or dynamic-tool / tool-* types)
+    // Cast to PartLike[] so TS doesn't narrow part.type to only 'text' (SDK types can be strict)
+    type PartLike = {
+      type: string;
+      toolInvocation?: { toolName?: string; state?: string; result?: unknown };
+      toolName?: string;
+      state?: string;
+      output?: unknown;
+    };
+    const parts: PartLike[] = Array.isArray(latestMsg.parts) ? (latestMsg.parts as PartLike[]) : [];
+    for (const p of parts) {
+      // Legacy 'tool-invocation' shape
+      if ((p as PartLike).type === 'tool-invocation' && p.toolInvocation) {
+        const toolName = p.toolInvocation.toolName?.toLowerCase();
+        if (toolName === 'updatecanvas' && p.toolInvocation.state === 'result') {
+          safeUpdateCanvas(currentAgentId, p.toolInvocation.result);
+        }
+        continue;
+      }
+      // SDK 6 dynamic-tool / tool-* part (e.g. type === 'dynamic-tool' or 'tool-updateCanvas')
+      if ((p.type === 'dynamic-tool' || p.type?.startsWith('tool-')) && (p.toolName || p.type?.replace(/^tool-/, ''))) {
+        const name = (p.toolName ?? p.type.replace(/^tool-/, '')).toLowerCase();
+        if (name === 'updatecanvas' && (p.state === 'output-available' || p.state === 'result') && p.output !== undefined) {
+          safeUpdateCanvas(currentAgentId, p.output);
         }
       }
     }
 
     // 3. Handle 'toolInvocations' property (top-level on message)
-    if (Array.isArray(latestMsg.toolInvocations)) {
-      latestMsg.toolInvocations.forEach((tool: any) => {
+    const msgWithTools = latestMsg as { toolInvocations?: Array<{ toolName?: string; result?: unknown; args?: unknown }> };
+    if (Array.isArray(msgWithTools.toolInvocations)) {
+      msgWithTools.toolInvocations.forEach((tool: any) => {
         if (tool?.toolName?.toLowerCase() === 'updatecanvas') {
            // We accept both partial (args) and final (result) updates if possible, 
            // but 'result' is safer. If 'args' are available during stream, we can use them too.
@@ -326,7 +351,7 @@ export function ChatInterface() {
              </div>
           )}
           {/* Quick Replies - Only show when no USER messages exist yet */}
-          {!messages.some(m => m.role === 'user') && (
+          {!messages.some((m: { role: string }) => m.role === 'user') && (
              <div className="flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-1">
                 {quickReplies.map((reply, i) => (
                    <button 
