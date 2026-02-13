@@ -124,7 +124,7 @@ export function GaoXiaoxinView() {
         </div>
       )}
       
-      {data.actionList && data.actionList.length > 0 && (
+      {Array.isArray(data.actionList) && data.actionList.length > 0 && (
         <div className="mt-2 min-w-0">
            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Action List</h4>
            <ul className="space-y-3 max-h-[200px] overflow-y-auto pr-1">

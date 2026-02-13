@@ -137,7 +137,21 @@ export function ChatInterface() {
         });
         normalizedData.scores = normalizedScores;
       }
-      
+
+      // Ensure actionList is always an array so .map() in GaoXiaoxinView never throws
+      if ('actionList' in normalizedData) {
+        if (!Array.isArray(normalizedData.actionList)) {
+          const raw = normalizedData.actionList;
+          if (raw == null) {
+            normalizedData.actionList = [];
+          } else if (typeof raw === 'object' && raw !== null) {
+            normalizedData.actionList = Object.values(raw).map((v) => String(v));
+          } else {
+            normalizedData.actionList = [String(raw)];
+          }
+        }
+      }
+
       updateCanvasData(agentId, normalizedData);
     };
 
