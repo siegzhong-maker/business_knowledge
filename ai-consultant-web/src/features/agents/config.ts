@@ -15,7 +15,7 @@ const gxxSchema = z.object({
   }).optional().describe("三个维度的打分"),
   summary: z.string().optional().describe("简短诊断总结"),
   actionList: z.array(z.string()).optional().describe("3-5个具体的下一步行动建议"),
-  suggestedReplies: z.array(z.string()).optional().describe("1-3条上下文相关的快捷回复建议，仅在需要用户做选择或确认时提供"),
+  suggestedReplies: z.array(z.string()).optional().describe("每轮回复建议提供 1-2 条，作为用户可一键发送的快捷选项，便于推进对话"),
 });
 
 // Schema for BMC
@@ -47,6 +47,7 @@ export const agents: Record<string, AgentConfig> = {
       diff: '等待输入...',
       scores: { high: 0, small: 0, new: 0 },
       actionList: [],
+      actionListChecked: [] as boolean[],
       suggestedReplies: [],
     },
     welcomeMessages: [

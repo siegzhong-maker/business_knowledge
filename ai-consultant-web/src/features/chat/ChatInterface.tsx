@@ -4,7 +4,7 @@ import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport } from 'ai';
 import { useAgentStore } from '@/lib/store';
 import { agents } from '@/features/agents/config';
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Bot, User, Send, ChevronDown, RotateCcw, Radar, LayoutGrid, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -31,7 +31,7 @@ function getPlaceholderForGxx(canvasData: any): string {
 /** Strip canvas-schema JSON code blocks from AI text (fallback when model leaks JSON into reply). */
 function sanitizeChatText(text: string): string {
   if (!text?.trim()) return text;
-  // Match ```json ... ``` or ``` ... ``` blocks
+  // 1. Match ```json ... ``` or ``` ... ``` blocks
   const codeBlockRe = /```(?:json)?\s*([\s\S]*?)```/g;
   const canvasSchemaKeywords = ['"product"', '"target"', '"scores"', '"actionList"', '"suggestedReplies"', '"niche"', '"diff"', '"summary"'];
   let result = text.replace(codeBlockRe, (_, inner) => {
@@ -42,13 +42,42 @@ function sanitizeChatText(text: string): string {
     if (hasCanvasFields) return ''; // Remove entirely
     return `\`\`\`${inner}\`\`\``; // Keep other code blocks
   });
+
+  // 2. Aggressive raw JSON cleanup
+  // Match naked JSON-like blocks that contain canvas keywords
+  // Heuristic: { ... "keyword" ... }
+  const rawJsonRe = /\{[\s\S]*?(?:"product"|"target"|"scores"|"actionList"|"suggestedReplies"|"niche"|"diff"|"summary")[\s\S]*?\}/g;
+  result = result.replace(rawJsonRe, (match) => {
+    // Double check it looks like JSON (starts with { and ends with })
+    if (match.trim().startsWith('{') && match.trim().endsWith('}')) {
+       return '';
+    }
+    return match;
+  });
+
   // Clean up excessive newlines left by removal
   result = result.replace(/\n{3,}/g, '\n\n').trim();
   return result;
 }
 
+function getTextFromNode(node: React.ReactNode): string {
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(getTextFromNode).join('');
+  if (React.isValidElement(node)) {
+    const props = node.props as { children?: React.ReactNode };
+    if (props?.children != null) return getTextFromNode(props.children);
+  }
+  return '';
+}
+
+function isPlaceholderLikeListItem(text: string): boolean {
+  const t = text?.trim() ?? '';
+  return !t || t.includes('等待输入') || /^[\u4e00-\u9fa5\/]+\s*[:：]\s*等待输入/.test(t);
+}
+
 export function ChatInterface() {
-  const { currentAgentId, setAgent, updateCanvasData, canvasData, sessionId, setSessionId } = useAgentStore();
+  const { currentAgentId, setAgent, updateCanvasData, canvasData, sessionId, setSessionId, resetCanvas, setChatLoading } = useAgentStore();
   const config = agents[currentAgentId];
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -82,6 +111,10 @@ export function ChatInterface() {
   });
 
   const isLoading = status === 'submitted' || status === 'streaming';
+
+  useEffect(() => {
+    setChatLoading(isLoading);
+  }, [isLoading, setChatLoading]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement> | React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
@@ -129,14 +162,24 @@ export function ChatInterface() {
   const lastMessage = messages[messages.length - 1];
   const lastIsAssistant = (lastMessage as any)?.role === "assistant";
   const apiSuggestedReplies = (currentAgentId === 'gxx' ? canvasData?.gxx?.suggestedReplies : null) ?? [];
+  const isValidSuggestedReply = (s: string) =>
+    typeof s === 'string' &&
+    s.trim().length > 3 &&
+    !s.includes('等待输入') &&
+    !/^[\u4e00-\u9fa5\/]+\s*[:：]\s*等待输入/.test(s.trim());
+  const suggestedReplies = (Array.isArray(apiSuggestedReplies) ? apiSuggestedReplies : [])
+    .filter(isValidSuggestedReply)
+    .slice(0, 3);
   const showSuggestedReplies =
-    !isLoading && lastIsAssistant && Array.isArray(apiSuggestedReplies) && apiSuggestedReplies.length > 0;
-  const suggestedReplies = apiSuggestedReplies.slice(0, 3);
+    !isLoading && lastIsAssistant && suggestedReplies.length > 0;
 
+  const isConsultationComplete = currentAgentId === 'gxx' && canvasData?.gxx?.summary && Array.isArray(canvasData.gxx.actionList) && canvasData.gxx.actionList.length > 0;
   const chatPlaceholder =
-    currentAgentId === "gxx"
-      ? getPlaceholderForGxx(canvasData)
-      : "直接打字回复...";
+    isConsultationComplete
+      ? "可继续追问或导出报告..."
+      : currentAgentId === "gxx"
+        ? getPlaceholderForGxx(canvasData)
+        : "直接打字回复...";
 
   // Watch for tool results to update canvas (AI SDK 6: parts with output; legacy: toolInvocations with result)
   useEffect(() => {
@@ -285,15 +328,20 @@ export function ChatInterface() {
             variant="ghost"
             size="icon"
             className="text-slate-400 hover:text-slate-600"
-            onClick={() =>
+            onClick={() => {
+              // 1. Clear messages (reset to welcome)
               setMessages(
                 config.welcomeMessages.map((m, i) => ({
                   id: `welcome-${config.id}-${i}`,
                   role: 'assistant',
                   parts: [{ type: 'text', text: m }],
                 }))
-              )
-            }
+              );
+              // 2. Reset Canvas
+              resetCanvas(currentAgentId);
+              // 3. New Session ID
+              setSessionId(uuidv4());
+            }}
             title="重置会话"
           >
              <RotateCcw className="w-5 h-5" />
@@ -301,7 +349,7 @@ export function ChatInterface() {
        </div>
 
        {/* Messages */}
-       <div className="flex-1 overflow-y-auto p-5 space-y-6 bg-slate-50/50 pb-32 no-scrollbar" ref={scrollRef}>
+       <div className="flex-1 overflow-y-auto overflow-x-hidden p-5 space-y-6 bg-slate-50/50 pb-40" ref={scrollRef}>
           {error && (
              <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm mb-4 flex items-center justify-between gap-3">
                 <span>出错了: {error.message}</span>
@@ -347,24 +395,35 @@ export function ChatInterface() {
              // Strip leaked canvas JSON from assistant replies (fallback)
              const displayText = m.role === 'assistant' && textContent ? sanitizeChatText(textContent) : textContent;
 
-             // For assistant messages, render list items as clickable cards
+             // For assistant messages, render list items as clickable cards (except placeholder-like)
              const mdComponents =
                m.role === 'assistant'
                  ? {
-                     li: ({ children }: { children?: React.ReactNode }) => (
-                       <li className="!list-none !my-1 !p-0 !bg-transparent !border-0 !rounded-none">
-                         <button
-                           type="button"
-                           onClick={(e) => {
-                             const text = e.currentTarget.textContent?.trim();
-                             if (text) handleSend(text);
-                           }}
-                           className="w-full text-left py-2.5 px-3 rounded-xl bg-amber-50/70 border border-amber-100 cursor-pointer hover:bg-amber-100/80 transition-colors font-medium text-slate-700"
-                         >
-                           {children}
-                         </button>
-                       </li>
-                     ),
+                     li: ({ children }: { children?: React.ReactNode }) => {
+                       const text = getTextFromNode(children);
+                       const placeholderLike = isPlaceholderLikeListItem(text);
+                       if (placeholderLike) {
+                         return (
+                           <li className="my-1 list-disc ml-4">
+                             {children}
+                           </li>
+                         );
+                       }
+                       return (
+                         <li className="!list-none !my-1 !p-0 !bg-transparent !border-0 !rounded-none">
+                           <button
+                             type="button"
+                             onClick={(e) => {
+                               const btnText = e.currentTarget.textContent?.trim();
+                               if (btnText) handleSend(btnText);
+                             }}
+                             className="w-full text-left py-2.5 px-3 rounded-xl bg-amber-50/70 border border-amber-100 cursor-pointer hover:bg-amber-100/80 transition-colors font-medium text-slate-700"
+                           >
+                             {children}
+                           </button>
+                         </li>
+                       );
+                     },
                    }
                  : undefined;
 
@@ -373,7 +432,7 @@ export function ChatInterface() {
                 <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center mt-1 shadow-sm border border-slate-100 ${m.role === 'user' ? 'bg-slate-800 text-white' : config.iconColor}`}>
                    {m.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                 </div>
-                <div className={`p-3 rounded-2xl shadow-sm text-sm leading-relaxed prose prose-sm max-w-none ${m.role === 'user' ? 'prose-invert bg-slate-900 text-white rounded-tr-sm' : 'chat-assistant-message bg-white text-slate-700 rounded-tl-sm border border-slate-100'}`}>
+                <div className={`p-3 rounded-2xl shadow-sm text-sm leading-relaxed prose prose-sm max-w-none break-words ${m.role === 'user' ? 'prose-invert bg-slate-900 text-white rounded-tr-sm' : 'chat-assistant-message bg-white text-slate-700 rounded-tl-sm border border-slate-100'}`}>
                    {displayText ? <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>{displayText}</ReactMarkdown> : null}
                    {/* Hide tool invocations in UI, they update the canvas */}
                 </div>
@@ -398,6 +457,12 @@ export function ChatInterface() {
 
        {/* Input */}
        <div className="p-4 bg-white border-t border-slate-100 absolute bottom-0 w-full z-20">
+          {/* Consultation complete banner */}
+          {isConsultationComplete && (
+             <div className="mb-3 px-4 py-2.5 rounded-xl bg-green-50 border border-green-100 text-sm text-green-700">
+               咨询已完成，可继续追问或导出报告
+             </div>
+          )}
           {/* Step guide - when only welcome messages */}
           {isWelcomeOnly && config.guidedSteps && config.guidedSteps.length > 0 && (
              <div className="mb-3">
@@ -456,7 +521,8 @@ export function ChatInterface() {
                value={input || ''}
                onChange={handleInputChange}
                placeholder={chatPlaceholder}
-               className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-12 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 resize-none min-h-[50px] max-h-[100px] focus-visible:ring-offset-0"
+               disabled={isLoading}
+               className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-12 py-3 text-sm focus:ring-2 focus:ring-blue-500/20 resize-none min-h-[50px] max-h-[100px] focus-visible:ring-offset-0 disabled:opacity-50 disabled:bg-slate-100"
                onKeyDown={(e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSubmit(e as any); } }}
              />
              <Button type="submit" size="icon" disabled={isLoading || !(input || '').trim()} className="absolute right-2 top-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg h-8 w-8">

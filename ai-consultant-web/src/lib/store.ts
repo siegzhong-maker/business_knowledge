@@ -7,12 +7,14 @@ export interface AgentState {
   currentAgentId: string;
   sessionId: string | null;
   messages: Message[];
+  chatLoading: boolean;
   // Store canvas data for each agent: { gxx: {...}, bmc: {...} }
   canvasData: Record<string, any>;
   
   setAgent: (agentId: string) => void;
   setSessionId: (sessionId: string) => void;
   setMessages: (messages: Message[]) => void;
+  setChatLoading: (loading: boolean) => void;
   addMessage: (message: Message) => void;
   updateCanvasData: (agentId: string, data: any) => void;
   resetCanvas: (agentId: string) => void;
@@ -24,6 +26,7 @@ export const useAgentStore = create<AgentState>()(
       currentAgentId: 'gxx',
       sessionId: null,
       messages: [],
+      chatLoading: false,
       canvasData: {
         gxx: agents.gxx.initialState,
         bmc: agents.bmc.initialState,
@@ -32,14 +35,18 @@ export const useAgentStore = create<AgentState>()(
       setAgent: (agentId) => set({ currentAgentId: agentId, messages: [] }), // Reset chat on switch for now
       setSessionId: (sessionId) => set({ sessionId }),
       setMessages: (messages) => set({ messages }),
+      setChatLoading: (chatLoading) => set({ chatLoading }),
       addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
       
-      updateCanvasData: (agentId, data) => set((state) => ({
-        canvasData: {
-          ...state.canvasData,
-          [agentId]: { ...state.canvasData[agentId], ...data }
+      updateCanvasData: (agentId, data) => set((state) => {
+        const merged = { ...state.canvasData[agentId], ...data };
+        // When AI updates actionList, sync actionListChecked length (preserve existing check state)
+        if (agentId === 'gxx' && Array.isArray(data.actionList)) {
+          const existing = (state.canvasData.gxx?.actionListChecked as boolean[]) ?? [];
+          merged.actionListChecked = data.actionList.map((_: unknown, i: number) => existing[i] ?? false);
         }
-      })),
+        return { canvasData: { ...state.canvasData, [agentId]: merged } };
+      }),
 
       resetCanvas: (agentId) => set((state) => ({
         canvasData: {

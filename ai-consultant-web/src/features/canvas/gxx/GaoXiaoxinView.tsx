@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAgentStore } from '@/lib/store';
 import { ExportButton } from '@/features/export/ExportToolbar';
+import { Target, Radar as RadarIcon, Lightbulb, LayoutDashboard } from 'lucide-react';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 
 const EMPTY_PLACEHOLDER = '等待输入...';
@@ -21,28 +22,27 @@ const FIELD_GUIDANCE: Record<string, string> = {
 export function GaoXiaoxinView() {
   const data = useAgentStore((state) => state.canvasData.gxx);
   const updateCanvasData = useAgentStore((state) => state.updateCanvasData);
-  const prevDataRef = useRef<string | null>(null);
-  const [flash, setFlash] = useState(false);
+  const chatLoading = useAgentStore((state) => state.chatLoading);
+  const prevFieldsRef = useRef<Record<string, unknown>>({});
+  const [flashingField, setFlashingField] = useState<string | null>(null);
 
+  const fieldsToTrack = ['product', 'target', 'price', 'niche', 'diff'] as const;
   useEffect(() => {
-    const key = JSON.stringify({
-      product: data.product,
-      target: data.target,
-      summary: data.summary,
-      scores: data.scores,
-      actionList: data.actionList,
-    });
-    if (prevDataRef.current === null) {
-      prevDataRef.current = key;
-      return;
+    let fieldToFlash: string | null = null;
+    for (const key of fieldsToTrack) {
+      const curr = data[key];
+      const prev = prevFieldsRef.current[key];
+      prevFieldsRef.current[key] = curr;
+      if (prev !== undefined && curr !== prev) {
+        fieldToFlash = fieldToFlash ?? key;
+      }
     }
-    if (prevDataRef.current !== key) {
-      prevDataRef.current = key;
-      setFlash(true);
-      const t = setTimeout(() => setFlash(false), 1500);
+    if (fieldToFlash) {
+      setFlashingField(fieldToFlash);
+      const t = setTimeout(() => setFlashingField(null), 1500);
       return () => clearTimeout(t);
     }
-  }, [data]);
+  }, [data.product, data.target, data.price, data.niche, data.diff]);
 
   const filledCount = [
     data.product,
@@ -56,8 +56,9 @@ export function GaoXiaoxinView() {
     ? '完成左侧 3 步对话，将自动生成诊断'
     : `已填写 ${filledCount}/5 项`;
 
-  const totalScore = (data.scores?.high || 0) + (data.scores?.small || 0) + (data.scores?.new || 0);
-  const hasAnyScore = totalScore > 0;
+  const hasAnyScore = (data.scores?.high || 0) + (data.scores?.small || 0) + (data.scores?.new || 0) > 0;
+  const avgScore = ((data.scores?.high || 0) + (data.scores?.small || 0) + (data.scores?.new || 0)) / 3;
+  const totalScorePercent = hasAnyScore ? Math.round((avgScore / 5) * 100) : 0;
 
   const chartData = [
     { subject: '高 (High)', A: data.scores?.high || 0, fullMark: 5 },
@@ -66,21 +67,22 @@ export function GaoXiaoxinView() {
   ];
 
   return (
-    <div className={`w-full max-w-4xl min-w-0 bg-white shadow-lg rounded-2xl border border-slate-200 p-8 flex flex-col gap-6 min-h-[800px] fade-in relative overflow-hidden transition-shadow ${flash ? 'update-flash' : ''}`}>
+    <div className="w-full max-w-4xl min-w-0 bg-white shadow-lg rounded-2xl border border-slate-200 p-8 flex flex-col gap-6 min-h-[800px] fade-in relative overflow-visible">
       <div className="absolute inset-0 z-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
 
       <div className="flex justify-between items-start border-b border-slate-100 pb-5 z-10">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
+            <LayoutDashboard className="w-6 h-6 text-blue-600" />
             商业可行性诊断书
           </h1>
-          <p className="text-slate-500 text-sm mt-1">基于高小新战略模型</p>
+          <p className="text-slate-500 text-sm mt-1">基于高小新战略模型实时生成</p>
           <p className="text-xs text-slate-400 mt-1">{progressLabel}</p>
         </div>
         <div className="flex items-center gap-2">
-            <span className="px-3 py-1 bg-green-50 text-green-600 border border-green-200 rounded-full text-xs font-medium flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                Real-time
+            <span className={`px-3 py-1 border rounded-full text-xs font-medium flex items-center gap-1 transition-colors ${chatLoading ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-green-50 text-green-600 border-green-200'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${chatLoading ? 'bg-amber-500' : 'bg-green-500'}`}></span>
+                {chatLoading ? '思考并提取中...' : '监听会话中...'}
             </span>
             <ExportButton />
         </div>
@@ -94,17 +96,22 @@ export function GaoXiaoxinView() {
 
       <div className="grid grid-cols-5 gap-6">
         <div className="col-span-3 space-y-4">
+          <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2 mb-2">
+            <Target className="w-4 h-4 text-blue-500" />
+            项目沙盘推演
+          </h3>
           <div className="grid grid-cols-2 gap-3">
-             <FieldBox label="产品/服务形态" value={data.product} fieldKey="product" colSpan={2} editable onSave={(v) => updateCanvasData('gxx', { product: v || undefined })} />
-             <FieldBox label="目标客群" value={data.target} fieldKey="target" editable onSave={(v) => updateCanvasData('gxx', { target: v || undefined })} />
-             <FieldBox label="利润天花板 (高)" value={data.price} fieldKey="price" highlight />
-             <FieldBox label="破局切入点 (小)" value={data.niche} fieldKey="niche" colSpan={2} highlight editable onSave={(v) => updateCanvasData('gxx', { niche: v || undefined })} />
-             <FieldBox label="核心差异化 (新)" value={data.diff} fieldKey="diff" colSpan={2} highlight editable onSave={(v) => updateCanvasData('gxx', { diff: v || undefined })} />
+             <FieldBox label="产品/服务形态" value={data.product} fieldKey="product" colSpan={2} flash={flashingField === 'product'} editable onSave={(v) => updateCanvasData('gxx', { product: v || undefined })} />
+             <FieldBox label="目标客群" value={data.target} fieldKey="target" flash={flashingField === 'target'} editable onSave={(v) => updateCanvasData('gxx', { target: v || undefined })} />
+             <FieldBox label="利润天花板 (高)" value={data.price} fieldKey="price" highlight flash={flashingField === 'price'} />
+             <FieldBox label="破局切入点 (小)" value={data.niche} fieldKey="niche" colSpan={2} highlight flash={flashingField === 'niche'} editable onSave={(v) => updateCanvasData('gxx', { niche: v || undefined })} />
+             <FieldBox label="核心差异化 (新)" value={data.diff} fieldKey="diff" colSpan={2} highlight flash={flashingField === 'diff'} editable onSave={(v) => updateCanvasData('gxx', { diff: v || undefined })} />
           </div>
         </div>
         <div className="col-span-2 flex flex-col items-center justify-start p-5 bg-slate-50 rounded-2xl border border-slate-100 h-full">
-           <h3 className="text-sm font-semibold text-slate-800 mb-2 w-full text-left flex items-center gap-2">
-              <span className="text-brand-500">🎯</span> 高小新多维模型评分
+           <h3 className="text-sm font-semibold text-slate-800 mb-6 w-full text-left flex items-center gap-2">
+              <RadarIcon className="w-4 h-4 text-blue-500" />
+              高小新多维模型评分
            </h3>
            <div className="w-full aspect-square relative mt-2">
              {hasAnyScore ? (
@@ -117,48 +124,64 @@ export function GaoXiaoxinView() {
                  </RadarChart>
                </ResponsiveContainer>
              ) : (
-               <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
-                 <svg className="w-3/4 h-3/4 text-slate-200" viewBox="0 0 100 100" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="4 3">
-                   <polygon points="50,10 90,80 10,80" />
-                 </svg>
-                 <p className="text-sm text-slate-400 mt-2">完成左侧 3 步对话后将生成高小新评分</p>
-                 <p className="text-xs text-slate-300 mt-0.5">描述产品、客群与差异化即可获得评估</p>
+               <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 text-xs text-slate-400">
+                 等待数据填充<br />生成雷达图
                </div>
              )}
            </div>
            {hasAnyScore && (
-             <div className="mt-4 text-center">
+             <div className="mt-8 text-center">
                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">综合评估得分</div>
                <div className="text-4xl font-black text-blue-600 tracking-tighter mt-1">
-                 {totalScore.toFixed(1)}
+                 {totalScorePercent}
                </div>
              </div>
            )}
         </div>
       </div>
       
-      {data.summary && (
-        <div className="mt-4 p-5 bg-amber-50/60 border border-amber-100/60 rounded-xl">
-           <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2 mb-2">
-             <span className="text-amber-500">💡</span> AI 诊断点评
-           </h3>
-           <p className="text-sm text-slate-700 leading-relaxed italic">{data.summary}</p>
+      <div className={`flex-1 mt-2 pt-5 border-t border-slate-100 transition-opacity duration-700 ${(!data.summary && (!data.actionList || data.actionList.length === 0)) ? 'opacity-40' : 'opacity-100'}`}>
+        <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2 mb-4">
+          <Lightbulb className="w-4 h-4 text-amber-500" /> AI 诊断点评 & 下一步行动
+        </h3>
+        <div className="bg-amber-50/60 border border-amber-100/60 rounded-xl p-5 mb-5 shadow-sm">
+          <p className={`text-sm leading-relaxed ${data.summary ? 'text-slate-700' : 'text-slate-500 italic'}`}>
+            {data.summary || '当前数据不足，AI 分析引擎待命中，请继续在左侧与顾问交流...'}
+          </p>
         </div>
-      )}
-      
-      {Array.isArray(data.actionList) && data.actionList.length > 0 && (
-        <div className="mt-2 min-w-0">
-           <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Action List</h4>
-           <ul className="space-y-3 max-h-[200px] overflow-y-auto pr-1">
-             {data.actionList.map((action: string, idx: number) => (
-               <li key={idx} className="flex items-start gap-3 p-2 hover:bg-slate-50 rounded-lg transition-colors border border-transparent hover:border-slate-100">
-                  <div className="mt-1 w-4 h-4 rounded border-2 border-slate-300 flex-shrink-0"></div>
-                  <span className="text-slate-700 text-sm leading-snug break-words">{action}</span>
-               </li>
-             ))}
-           </ul>
-        </div>
-      )}
+        
+        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Action List</h4>
+        {Array.isArray(data.actionList) && data.actionList.length > 0 ? (
+          <ul className="space-y-3 overflow-y-visible pr-1">
+            {data.actionList.map((action: string, idx: number) => {
+              const checked = Array.isArray(data.actionListChecked) ? (data.actionListChecked[idx] ?? false) : false;
+              return (
+                <li key={idx} className="flex items-start gap-3 p-2 hover:bg-white rounded-lg transition-colors border border-transparent hover:border-slate-100">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => {
+                      const next = [...(data.actionListChecked ?? [])];
+                      while (next.length <= idx) next.push(false);
+                      next[idx] = !next[idx];
+                      updateCanvasData('gxx', { actionListChecked: next });
+                    }}
+                    className="mt-1 w-4 h-4 text-blue-600 rounded border-slate-300 cursor-pointer"
+                  />
+                  <span className={`text-sm leading-snug break-words ${checked ? 'text-slate-400 line-through' : 'text-slate-700'}`}>{action}</span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <ul className="space-y-3 opacity-50">
+            <li className="flex items-start gap-2 text-sm text-slate-400">
+              <div className="w-4 h-4 mt-0.5 rounded border-2 border-slate-300 flex-shrink-0"></div>
+              <span>等待提取待办事项...</span>
+            </li>
+          </ul>
+        )}
+      </div>
     </div>
   );
 }
@@ -169,6 +192,7 @@ function FieldBox({
   fieldKey,
   colSpan = 1,
   highlight = false,
+  flash = false,
   editable = false,
   onSave,
 }: {
@@ -177,6 +201,7 @@ function FieldBox({
   fieldKey?: string;
   colSpan?: number;
   highlight?: boolean;
+  flash?: boolean;
   editable?: boolean;
   onSave?: (value: string) => void;
 }) {
@@ -222,7 +247,7 @@ function FieldBox({
 
   return (
     <div
-      className={`p-3.5 rounded-xl border transition-all duration-300 ${colSpan === 2 ? 'col-span-2' : ''} ${filled ? 'bg-amber-50/50 border-amber-100' : 'bg-slate-50 border-slate-100'} ${editable ? 'cursor-text' : ''}`}
+      className={`p-3.5 rounded-xl border transition-all duration-300 ${colSpan === 2 ? 'col-span-2' : ''} ${filled ? 'bg-amber-50/50 border-amber-100' : 'bg-slate-50 border-slate-100'} ${editable ? 'cursor-text' : ''} ${flash ? 'update-flash' : ''}`}
       onClick={editable && !editing ? startEditing : undefined}
     >
       <label className={`text-[10px] font-bold uppercase block mb-1 ${highlight ? 'text-blue-500' : 'text-slate-400'}`}>
@@ -239,7 +264,7 @@ function FieldBox({
           onKeyDown={handleKeyDown}
         />
       ) : (
-        <div className={`text-sm font-medium min-h-[1.25rem] ${filled ? 'text-slate-700' : 'text-slate-400'}`}>
+        <div className={`text-sm font-medium min-h-[1.25rem] break-words ${filled ? 'text-slate-700' : 'text-slate-400'}`}>
           {displayValue}
         </div>
       )}
