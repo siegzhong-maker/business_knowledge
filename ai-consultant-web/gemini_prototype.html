@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>企业咨询 AI 智能体工作台 - 完整交互原型</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        @keyframes highlight-flash {
+            0% { background-color: #fef08a; transform: scale(1.02); box-shadow: 0 4px 12px rgba(250, 204, 21, 0.3); }
+            100% { background-color: transparent; transform: scale(1); box-shadow: none; }
+        }
+        .update-flash {
+            animation: highlight-flash 1.5s ease-out;
+        }
+
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+    </style>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#eff6ff', 100: '#dbeafe', 500: '#3b82f6', 600: '#2563eb', 900: '#1e3a8a' }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-50 text-slate-800 font-sans h-screen w-screen overflow-hidden flex">
+
+    <!-- 左侧：智能咨询对话区 (35%) -->
+    <div class="w-[35%] min-w-[380px] max-w-[450px] bg-white border-r border-slate-200 flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10 relative">
+        
+        <!-- Header -->
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-white/95 backdrop-blur z-20">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center text-brand-600 relative">
+                    <i data-lucide="bot" class="w-6 h-6"></i>
+                    <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
+                </div>
+                <div>
+                    <h2 class="font-semibold text-slate-900 text-sm">高小新战略官</h2>
+                    <p class="text-xs text-slate-500">商业模式诊断专家</p>
+                </div>
+            </div>
+            <button class="text-slate-400 hover:text-slate-600 transition-colors" title="重置会话" onclick="location.reload()">
+                <i data-lucide="rotate-ccw" class="w-5 h-5"></i>
+            </button>
+        </div>
+
+        <!-- Chat History -->
+        <div id="chat-container" class="flex-1 overflow-y-auto p-5 space-y-6 bg-slate-50/50 pb-32">
+            <!-- 初始欢迎语 -->
+            <div class="flex gap-3 max-w-[90%]">
+                <div class="w-8 h-8 rounded-full bg-brand-100 flex-shrink-0 flex items-center justify-center text-brand-600 mt-1">
+                    <i data-lucide="bot" class="w-5 h-5"></i>
+                </div>
+                <div class="space-y-2">
+                    <div class="bg-white p-3 rounded-2xl rounded-tl-sm shadow-sm border border-slate-100 text-sm text-slate-700 leading-relaxed">
+                        王总您好！我是您的专属商业顾问。今天我们将使用<strong>“高小新”模型</strong>来评估您的新项目，帮您看清生意的天花板。
+                    </div>
+                    <div class="bg-white p-3 rounded-2xl rounded-tl-sm shadow-sm border border-slate-100 text-sm text-slate-700 leading-relaxed">
+                        第一步，请用一句话告诉我，您的产品是什么？准备卖给谁？
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Input Area (Fixed Bottom) -->
+        <div class="p-4 bg-white border-t border-slate-100 absolute bottom-0 w-full z-20">
+            <!-- 快捷回复区 -->
+            <div id="quick-replies" class="flex gap-2 overflow-x-auto pb-3 no-scrollbar">
+                <button onclick="handleQuickReply('我想做面向大企业的员工心理健康 AI 咨询服务')" class="whitespace-nowrap px-4 py-2 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs rounded-full border border-brand-200 transition-colors shadow-sm font-medium">
+                    "我想做面向大企业的员工心理健康 AI 服务"
+                </button>
+            </div>
+            
+            <div class="relative flex items-center">
+                <textarea id="chat-input" rows="1" class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-4 pr-12 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/20 focus:border-brand-500 resize-none transition-all disabled:opacity-50 disabled:bg-slate-100" placeholder="直接打字回复，或点击上方快捷按钮..."></textarea>
+                <button id="send-btn" class="absolute right-2 p-1.5 bg-brand-600 hover:bg-brand-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                    <i data-lucide="send" class="w-4 h-4"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 右侧：实时交付画布区 (65%) -->
+    <div class="w-[65%] flex-1 bg-slate-100 relative overflow-y-auto overflow-x-hidden flex justify-center p-8 pb-32">
+        <div class="absolute inset-0 z-0 opacity-[0.03] pointer-events-none" style="background-image: radial-gradient(#000 1px, transparent 1px); background-size: 24px 24px;"></div>
+
+        <!-- 交付物容器 -->
+        <div id="canvas-document" class="w-full max-w-4xl bg-white shadow-[0_8px_30px_rgb(0,0,0,0.04)] rounded-2xl border border-slate-200 z-10 p-8 flex flex-col gap-6 transition-all duration-500 min-h-[850px]">
+            
+            <!-- 文档头部 -->
+            <div class="flex justify-between items-start border-b border-slate-100 pb-5">
+                <div>
+                    <h1 class="text-2xl font-bold text-slate-800 tracking-tight flex items-center gap-2">
+                        <i data-lucide="layout-dashboard" class="w-6 h-6 text-brand-600"></i>
+                        商业可行性诊断书
+                    </h1>
+                    <p class="text-slate-500 text-sm mt-1">基于高小新战略模型实时生成</p>
+                </div>
+                <div class="flex gap-2">
+                    <span id="sync-status" class="px-3 py-1 bg-green-50 text-green-600 border border-green-200 rounded-full text-xs font-medium flex items-center gap-1 transition-colors">
+                        <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                        <span id="sync-text">监听会话中...</span>
+                    </span>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-5 gap-6">
+                <!-- 左侧基础信息录入区 (占 3 列) -->
+                <div class="col-span-3 space-y-4">
+                    <h3 class="text-sm font-semibold text-slate-800 flex items-center gap-2 mb-2">
+                        <i data-lucide="target" class="w-4 h-4 text-brand-500"></i>
+                        项目沙盘推演
+                    </h3>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div id="field-product" class="p-3.5 rounded-xl bg-slate-50 border border-slate-100 transition-all col-span-2">
+                            <label class="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">产品/服务形态</label>
+                            <div class="text-sm font-medium text-slate-700 min-h-[20px] field-value text-slate-400 italic">等待输入...</div>
+                        </div>
+                        <div id="field-target" class="p-3.5 rounded-xl bg-slate-50 border border-slate-100 transition-all">
+                            <label class="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">目标客群</label>
+                            <div class="text-sm font-medium text-slate-700 min-h-[20px] field-value text-slate-400 italic">等待输入...</div>
+                        </div>
+                        <div id="field-price" class="p-3.5 rounded-xl bg-slate-50 border border-slate-100 transition-all relative">
+                            <label class="text-[10px] text-brand-500 font-bold uppercase tracking-wider block mb-1">利润天花板 (高)</label>
+                            <div class="text-sm font-medium text-slate-700 min-h-[20px] field-value text-slate-400 italic">等待输入...</div>
+                        </div>
+                        <div id="field-niche" class="p-3.5 rounded-xl bg-slate-50 border border-slate-100 transition-all col-span-2 relative">
+                            <label class="text-[10px] text-brand-500 font-bold uppercase tracking-wider block mb-1">破局切入点 (小)</label>
+                            <div class="text-sm font-medium text-slate-700 min-h-[20px] field-value text-slate-400 italic">等待输入...</div>
+                        </div>
+                        <div id="field-diff" class="p-3.5 rounded-xl bg-slate-50 border border-slate-100 transition-all col-span-2 relative">
+                            <label class="text-[10px] text-brand-500 font-bold uppercase tracking-wider block mb-1">核心差异化 (新)</label>
+                            <div class="text-sm font-medium text-slate-700 min-h-[20px] field-value text-slate-400 italic">等待输入...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 右侧雷达图区 (占 2 列) -->
+                <div class="col-span-2 flex flex-col items-center justify-start p-5 bg-slate-50 rounded-2xl border border-slate-100 h-full">
+                    <h3 class="text-sm font-semibold text-slate-800 mb-6 w-full text-left flex items-center gap-2">
+                        <i data-lucide="radar" class="w-4 h-4 text-brand-500"></i>
+                        高小新多维模型评分
+                    </h3>
+                    <div class="w-full max-w-[220px] aspect-square relative mt-2">
+                        <canvas id="radarChart"></canvas>
+                        <div id="chart-placeholder" class="absolute inset-0 flex items-center justify-center text-xs text-slate-400 text-center">
+                            等待数据填充<br>生成雷达图
+                        </div>
+                    </div>
+                    <div id="score-display" class="mt-8 text-center hidden">
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">综合评估得分</div>
+                        <div class="text-4xl font-black text-brand-600 tracking-tighter mt-1" id="total-score">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 诊断与建议区 -->
+            <div id="diagnosis-section" class="flex-1 mt-2 pt-5 border-t border-slate-100 opacity-40 transition-opacity duration-700">
+                <h3 class="text-sm font-semibold text-slate-800 flex items-center gap-2 mb-4">
+                    <i data-lucide="lightbulb" class="w-4 h-4 text-amber-500"></i>
+                    AI 诊断点评 & 下一步行动
+                </h3>
+                <div class="bg-amber-50/60 border border-amber-100/60 rounded-xl p-5 mb-5 shadow-sm">
+                    <p id="field-summary" class="text-sm text-slate-500 leading-relaxed italic">当前数据不足，AI 分析引擎待命中，请继续在左侧与顾问交流...</p>
+                </div>
+                
+                <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Action List</h4>
+                <ul id="todo-list" class="space-y-3 opacity-50">
+                    <li class="flex items-start gap-2 text-sm text-slate-400">
+                        <i data-lucide="square" class="w-4 h-4 mt-0.5 text-slate-300"></i>
+                        <span>等待提取待办事项...</span>
+                    </li>
+                </ul>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- 底部悬浮工具栏 -->
+    <div class="fixed bottom-6 left-[67%] transform -translate-x-1/2 glass-panel shadow-[0_8px_30px_rgb(0,0,0,0.08)] rounded-full px-4 py-2 flex items-center gap-2 z-50">
+        <button class="flex items-center gap-2 px-3 py-1.5 hover:bg-slate-100 rounded-full transition-colors text-sm text-slate-700 font-medium">
+            <i data-lucide="file-check-2" class="w-4 h-4 text-brand-600"></i>
+            报告视图 <i data-lucide="chevron-up" class="w-3 h-3 text-slate-400"></i>
+        </button>
+        <div class="w-px h-5 bg-slate-200 mx-1"></div>
+        <button class="flex items-center gap-1 pl-3 pr-4 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-full transition-colors text-sm font-medium shadow-sm" onclick="alert('报告已生成并准备下载！')">
+            <i data-lucide="download" class="w-4 h-4"></i>
+            导出 PDF
+        </button>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        // 基础逻辑
+        const chatContainer = document.getElementById('chat-container');
+        const inputEl = document.getElementById('chat-input');
+        const sendBtn = document.getElementById('send-btn');
+        const quickRepliesArea = document.getElementById('quick-replies');
+        
+        function scrollToBottom() {
+            chatContainer.scrollTo({ top: chatContainer.scrollHeight, behavior: 'smooth' });
+        }
+
+        // 初始化雷达图
+        let radarChart;
+        const ctx = document.getElementById('radarChart').getContext('2d');
+        Chart.defaults.font.family = 'system-ui, -apple-system, sans-serif';
+        radarChart = new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: ['高 (利润)', '小 (切点)', '新 (差异)'],
+                datasets: [{
+                    label: '得分',
+                    data: [0, 0, 0],
+                    backgroundColor: 'rgba(59, 130, 246, 0.25)',
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    pointBackgroundColor: '#fff',
+                    pointBorderColor: 'rgba(59, 130, 246, 1)',
+                    pointHoverBackgroundColor: 'rgba(59, 130, 246, 1)',
+                    pointHoverBorderColor: '#fff',
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    borderWidth: 2.5,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                scales: {
+                    r: {
+                        angleLines: { color: 'rgba(0,0,0,0.06)' },
+                        grid: { color: 'rgba(0,0,0,0.06)' },
+                        pointLabels: { font: { size: 12, weight: '700' }, color: '#334155' },
+                        ticks: { display: false, min: 0, max: 5, stepSize: 1 }
+                    }
+                },
+                plugins: { legend: { display: false } },
+                animation: { duration: 1200, easing: 'easeOutElastic' }
+            }
+        });
+
+        // UI 渲染方法
+        function renderUserMessage(text) {
+            const msgHTML = `
+                <div class="flex gap-3 max-w-[90%] ml-auto flex-row-reverse animate-[fadeIn_0.3s_ease-out]">
+                    <div class="w-8 h-8 rounded-full bg-slate-800 flex-shrink-0 flex items-center justify-center text-white mt-1 shadow-sm">
+                        <i data-lucide="user" class="w-4 h-4"></i>
+                    </div>
+                    <div class="bg-slate-900 text-white p-3 rounded-2xl rounded-tr-sm shadow-sm text-sm leading-relaxed">
+                        ${text}
+                    </div>
+                </div>
+            `;
+            chatContainer.insertAdjacentHTML('beforeend', msgHTML);
+            lucide.createIcons();
+            scrollToBottom();
+        }
+
+        function renderAIMessage(text, callback) {
+            setSyncStatus('思考并提取中...', 'bg-amber-500', 'text-amber-600', 'bg-amber-50');
+            const msgId = 'msg-' + Date.now();
+            const msgHTML = `
+                <div class="flex gap-3 max-w-[90%] animate-[fadeIn_0.3s_ease-out]">
+                    <div class="w-8 h-8 rounded-full bg-brand-100 flex-shrink-0 flex items-center justify-center text-brand-600 mt-1 shadow-sm border border-brand-200">
+                        <i data-lucide="bot" class="w-5 h-5"></i>
+                    </div>
+                    <div class="bg-white p-3 rounded-2xl rounded-tl-sm shadow-sm border border-slate-100 text-sm text-slate-700 leading-relaxed" id="${msgId}">
+                        <span class="typing-cursor w-1.5 h-4 bg-brand-500 inline-block animate-pulse align-middle"></span>
+                    </div>
+                </div>
+            `;
+            chatContainer.insertAdjacentHTML('beforeend', msgHTML);
+            lucide.createIcons();
+            scrollToBottom();
+
+            const el = document.getElementById(msgId);
+            let i = 0;
+            const interval = setInterval(() => {
+                el.innerHTML = text.substring(0, i) + '<span class="typing-cursor w-1.5 h-4 bg-brand-500 inline-block animate-pulse align-middle ml-1"></span>';
+                i++;
+                if (i % 10 === 0) scrollToBottom();
+                if (i > text.length) {
+                    clearInterval(interval);
+                    el.innerHTML = text;
+                    setSyncStatus('监听会话中...', 'bg-green-500', 'text-green-600', 'bg-green-50');
+                    if(callback) callback();
+                    scrollToBottom();
+                }
+            }, 25);
+        }
+
+        function updateCanvasField(id, text) {
+            const container = document.getElementById(`field-${id}`);
+            const textEl = container.querySelector('.field-value');
+            textEl.innerHTML = text;
+            textEl.classList.remove('text-slate-400', 'italic');
+            textEl.classList.add('text-slate-900');
+            container.classList.remove('update-flash');
+            void container.offsetWidth;
+            container.classList.add('update-flash');
+        }
+
+        function updateRadarChart(scores, total) {
+            document.getElementById('chart-placeholder').style.display = 'none';
+            radarChart.data.datasets[0].data = scores;
+            radarChart.update();
+            
+            if (total) {
+                const scoreDisplay = document.getElementById('score-display');
+                const totalEl = document.getElementById('total-score');
+                scoreDisplay.classList.remove('hidden');
+                scoreDisplay.classList.add('animate-[fadeIn_1s_ease-in]');
+                totalEl.innerText = total;
+            }
+        }
+
+        function setSyncStatus(text, dotColor, textColor, bgColor) {
+            const statusEl = document.getElementById('sync-status');
+            const dot = statusEl.querySelector('span:first-child');
+            document.getElementById('sync-text').innerText = text;
+            
+            statusEl.className = `px-3 py-1 border rounded-full text-xs font-medium flex items-center gap-1 transition-colors ${textColor} ${bgColor} border-${dotColor.replace('bg-', '')}/30`;
+            dot.className = `w-1.5 h-1.5 rounded-full ${dotColor} animate-pulse`;
+        }
+
+        // --- 核心状态机逻辑 ---
+        let flowState = 1;
+
+        function handleQuickReply(text) {
+            inputEl.value = text;
+            handleUserSubmit();
+        }
+
+        function handleUserSubmit() {
+            const text = inputEl.value.trim();
+            if (!text) return;
+
+            inputEl.value = '';
+            inputEl.disabled = true;
+            sendBtn.disabled = true;
+            quickRepliesArea.innerHTML = '';
+            
+            renderUserMessage(text);
+
+            setTimeout(() => {
+                progressFlow(text);
+            }, 600);
+        }
+
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleUserSubmit();
+            }
+        });
+        sendBtn.addEventListener('click', handleUserSubmit);
+
+        function progressFlow(userText) {
+            if (flowState === 1) {
+                // 处理 Step 1 -> 发起 Step 2 (问"高")
+                // 模拟简单提取逻辑：取前15个字作为产品，固定目标客群
+                const productStr = userText.length > 15 ? userText.substring(0, 15) + '...' : userText.replace('我想做', '');
+                updateCanvasField('product', `<span class="font-bold">${productStr}</span>`);
+                updateCanvasField('target', '大企业客户 (B端)');
+                
+                renderAIMessage("收到！这是一个典型的 B端服务。我们先看模型的第一个维度——<strong class='text-brand-600'>‘高’ (High 利润/天花板)</strong>。<br><br>这门生意的天花板在哪里？您觉得您的产品是靠“高频刚需”赚钱，还是“低频高毛利”？请预估一下客单价。", () => {
+                    quickRepliesArea.innerHTML = `<button onclick="handleQuickReply('客单价大概 5万/年，不算高频')" class="whitespace-nowrap px-4 py-2 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs rounded-full border border-brand-200 transition-colors shadow-sm font-medium">"客单价大概 5万/年，不算高频"</button>`;
+                    inputEl.disabled = false; sendBtn.disabled = false; inputEl.focus();
+                });
+                flowState = 2;
+            }
+            else if (flowState === 2) {
+                // 处理 Step 2 -> 发起 Step 3 (问"小")
+                // 提取客单价并打分
+                const priceMatch = userText.match(/\d+万?/);
+                const priceText = priceMatch ? priceMatch[0] + '/年' : '暂无确切定价';
+                
+                updateCanvasField('price', `<span class="text-brand-600 font-bold text-lg">${priceText}</span> <span class="text-xs text-slate-500 ml-1">高毛利导向</span>`);
+                updateRadarChart([4.5, 0, 0]);
+                
+                renderAIMessage("⚠️ <strong>商业逻辑挑战：</strong> 根据我们的课程理论，既然非高频，就必须保证极高的毛利和客情复购率。<br><br>在客单价维度，我给打 <strong>4.5分</strong>。<br>接下来看<strong class='text-brand-600'>‘小’ (Small 切入点)</strong>。大企业范围太广了，如果启动资源有限，您打算先死磕哪个极小的细分人群？", () => {
+                    quickRepliesArea.innerHTML = `<button onclick="handleQuickReply('先切入互联网大厂的研发团队，他们压力最大')" class="whitespace-nowrap px-4 py-2 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs rounded-full border border-brand-200 transition-colors shadow-sm font-medium">"先切入互联网大厂的研发团队"</button>`;
+                    inputEl.disabled = false; sendBtn.disabled = false;
+                });
+                flowState = 3;
+            }
+            else if (flowState === 3) {
+                // 处理 Step 3 -> 发起 Step 4 (问"新")
+                updateCanvasField('niche', '<span class="text-slate-800">互联网大厂研发团队</span> <br><span class="text-xs text-amber-600">竞争红海</span>');
+                updateRadarChart([4.5, 3.5, 0]);
+                
+                renderAIMessage("切入点找得很聚焦。但要注意，大厂HR预算紧且竞争激烈，‘小’维度我给 <strong>3.5分</strong>。<br><br>最后最关键的一步，看<strong class='text-brand-600'>‘新’ (New 差异化)</strong>。市面上做 EAP（员工心理援助）的公司很多，您的产品有什么核心创新点让客户非买不可？", () => {
+                    quickRepliesArea.innerHTML = `<button onclick="handleQuickReply('我们用AI做24小时倾听，比传统医生便宜90%，且保护隐私')" class="whitespace-nowrap px-4 py-2 bg-brand-50 hover:bg-brand-100 text-brand-700 text-xs rounded-full border border-brand-200 transition-colors shadow-sm font-medium">"AI全天候陪伴，降本90%且护隐私"</button>`;
+                    inputEl.disabled = false; sendBtn.disabled = false;
+                });
+                flowState = 4;
+            }
+            else if (flowState === 4) {
+                // 处理 Step 4 -> 总结并生成报告
+                updateCanvasField('diff', '<span class="text-brand-600 font-bold">AI降本90% + 绝对隐私</span>');
+                updateRadarChart([4.5, 3.5, 4.8], 86);
+                
+                const diagSection = document.getElementById('diagnosis-section');
+                diagSection.classList.remove('opacity-40');
+                diagSection.classList.add('opacity-100');
+                
+                document.getElementById('field-summary').innerHTML = `
+                    <strong class="text-slate-800 text-base">诊断结论 (商业评级: A)：</strong><br>
+                    该项目在“高”(高毛利空间) 和“新”(AI降本带来的巨大差价) 上表现惊艳。但在“小”(切入点)上，虽然限定在“研发团队”，依然存在大厂内部自研的替代风险。核心生死线在于：<strong>能否在半年内跑通“隐私信任”的模型。</strong>
+                `;
+                document.getElementById('field-summary').className = "text-sm text-slate-700 leading-relaxed";
+
+                document.getElementById('todo-list').innerHTML = `
+                    <li class="flex items-start gap-3 p-2 hover:bg-white rounded-lg transition-colors border border-transparent hover:border-slate-100">
+                        <input type="checkbox" class="mt-1 w-4 h-4 text-brand-600 rounded border-slate-300 cursor-pointer">
+                        <span class="text-slate-700 leading-snug">访谈 5 位字节/腾讯 HRBP，核心验证：“隐私担忧”是否是员工不用传统EAP的真正痛点。</span>
+                    </li>
+                    <li class="flex items-start gap-3 p-2 hover:bg-white rounded-lg transition-colors border border-transparent hover:border-slate-100">
+                        <input type="checkbox" class="mt-1 w-4 h-4 text-brand-600 rounded border-slate-300 cursor-pointer">
+                        <span class="text-slate-700 leading-snug">算账：计算单次 AI 对话的 Token API 成本，确保毛利率必须 > 80%。</span>
+                    </li>
+                `;
+                document.getElementById('todo-list').classList.remove('opacity-50');
+
+                renderAIMessage("逻辑闭环了！非常精彩的商业构想。我已经在右侧为您生成了完整的<strong>《高小新战略诊断清单》</strong>和下一步必须要做的 <strong>Action List</strong>。<br><br>您可以勾选待办事项，或者点击右下角直接导出为 PDF 报告去和您的合伙人汇报。还需要我帮您推演其他场景吗？", () => {
+                     quickRepliesArea.innerHTML = `<span class="text-xs text-slate-400 py-2">咨询已完成。您可以直接导出报告。</span>`;
+                     // 禁用输入，因为演示流程结束
+                     inputEl.disabled = true;
+                     inputEl.placeholder = "会话已结束";
+                });
+                flowState = 5;
+            }
+        }
+
+        // 添加一个小小的 CSS 动画给消息
+        document.head.insertAdjacentHTML('beforeend', `<style>
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+        </style>`);
+    </script>
+</body>
+</html>
