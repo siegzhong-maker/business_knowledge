@@ -152,7 +152,7 @@ export function GaoXiaoxinView() {
         
         <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 ml-1">Action List</h4>
         {Array.isArray(data.actionList) && data.actionList.length > 0 ? (
-          <ul className="space-y-3 overflow-y-visible pr-1">
+          <ul className="space-y-3 max-h-[240px] overflow-y-auto pr-1">
             {data.actionList.map((action: string, idx: number) => {
               const checked = Array.isArray(data.actionListChecked) ? (data.actionListChecked[idx] ?? false) : false;
               return (

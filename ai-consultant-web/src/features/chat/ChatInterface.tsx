@@ -415,7 +415,10 @@ export function ChatInterface() {
                              type="button"
                              onClick={(e) => {
                                const btnText = e.currentTarget.textContent?.trim();
-                               if (btnText) handleSend(btnText);
+                               if (btnText) {
+                                 setInput(btnText);
+                                 inputRef.current?.focus();
+                               }
                              }}
                              className="w-full text-left py-2.5 px-3 rounded-xl bg-amber-50/70 border border-amber-100 cursor-pointer hover:bg-amber-100/80 transition-colors font-medium text-slate-700"
                            >
