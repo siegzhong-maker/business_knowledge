@@ -160,9 +160,9 @@ export function GaoXiaoxinView() {
   const totalScorePercent = hasAnyScore ? Math.round((avgScore / 5) * 100) : 0;
 
   const chartData = [
-    { subject: '高 (High)', A: data.scores?.high || 0, fullMark: 5 },
-    { subject: '小 (Small)', A: data.scores?.small || 0, fullMark: 5 },
-    { subject: '新 (New)', A: data.scores?.new || 0, fullMark: 5 },
+    { subject: '高', A: data.scores?.high || 0, fullMark: 5 },
+    { subject: '小', A: data.scores?.small || 0, fullMark: 5 },
+    { subject: '新', A: data.scores?.new || 0, fullMark: 5 },
   ];
 
   return (
@@ -179,8 +179,8 @@ export function GaoXiaoxinView() {
           <p className="text-xs text-[#475569] mt-1">{progressLabel}</p>
         </div>
         <div data-pdf-hide className="flex flex-col items-end gap-1">
-          <p className="text-[10px] text-[#94a3b8] max-w-[200px] text-right">画布随 AI 回复自动更新，您也可点击字段直接修改</p>
-          <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-[10px] text-[#94a3b8] max-w-[220px] text-right text-balance">画布随 AI 回复自动更新，您也可点击字段直接修改</p>
+          <div className="flex items-center gap-2 flex-wrap justify-end">
             <span className={`px-3 py-1 border rounded-full text-xs font-medium flex items-center gap-1 transition-colors ${chatLoading ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-green-50 text-green-600 border-green-200'}`}>
               <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${chatLoading ? 'bg-amber-500' : 'bg-green-500'}`}></span>
               {chatLoading ? '思考并提取中...' : '跟随会话中 · 画布会随对话自动更新'}
@@ -221,7 +221,7 @@ export function GaoXiaoxinView() {
             <Target className="w-4 h-4 text-[#3b82f6]" />
             项目沙盘推演
           </h3>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 [&>div]:min-h-[72px]">
              <FieldBox label="产品/服务形态" value={data.product} fieldKey="product" colSpan={2} flash={flashingField === 'product'} editable onSave={(v) => handleCanvasEdit({ product: v || undefined })} />
              <FieldBox label="目标客群" value={data.target} fieldKey="target" flash={flashingField === 'target'} editable onSave={(v) => handleCanvasEdit({ target: v || undefined })} />
              <FieldBox label="利润天花板 (高)" value={data.price} fieldKey="price" highlight flash={flashingField === 'price'} editable onSave={(v) => handleCanvasEdit({ price: v || undefined })} />
@@ -404,7 +404,7 @@ function FieldBox({
           onKeyDown={handleKeyDown}
         />
       ) : (
-        <div className={`text-sm font-semibold min-h-[1.25rem] break-words ${filled ? 'text-[#1e293b]' : 'text-[#475569]'}`}>
+        <div className={`text-sm font-semibold min-h-[1.25rem] leading-relaxed break-words ${filled ? 'text-[#1e293b]' : 'text-[#475569]'}`}>
           {displayValue}
         </div>
       )}
