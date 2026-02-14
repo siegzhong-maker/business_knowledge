@@ -13,6 +13,11 @@ const gxxSchema = z.object({
     small: z.number().min(0).max(5).describe("小维度评分 0-5"),
     new: z.number().min(0).max(5).describe("新维度评分 0-5"),
   }).optional().describe("三个维度的打分"),
+  scoreReasons: z.object({
+    high: z.string().optional().describe("高维度的评分依据，一句话说明"),
+    small: z.string().optional().describe("小维度的评分依据，一句话说明"),
+    new: z.string().optional().describe("新维度的评分依据，一句话说明"),
+  }).optional().describe("各维度评分的简要依据，便于用户理解"),
   summary: z.string().optional().describe("简短诊断总结"),
   actionList: z.array(z.string()).optional().describe("3-5个具体的下一步行动建议"),
   suggestedReplies: z.array(z.string()).optional().describe("每轮回复建议提供 1-2 条，作为用户可一键发送的快捷选项，便于推进对话"),
@@ -51,8 +56,8 @@ export const agents: Record<string, AgentConfig> = {
       suggestedReplies: [],
     },
     welcomeMessages: [
-      "您好！我是您的专属商业顾问。今天我们将使用**“高小新”模型**来评估您的新项目，帮您看清生意的天花板。",
-      "第一步，请用一句话告诉我，您的产品是什么？准备卖给谁？"
+      "您好！我是您的专属商业顾问，专注**企业拓展与创新**。无论您是从零验证新项目，还是基于现有业务拓展新渠道/新品类，我都会用「高小新」模型帮您看清天花板。",
+      "请用一句话告诉我：您的产品/服务是什么？准备卖给谁？若已有成熟业务，也可以先说明现有基础和想拓展的方向。"
     ],
     guidedSteps: [
       { step: 1, label: "① 产品一句话", prefill: "我的产品是________，主要面向________。" },

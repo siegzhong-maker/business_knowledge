@@ -55,10 +55,10 @@ function getFallbackSuggestedReplies(canvasData: any): string[] {
   if (hasProduct && hasTarget && hasPrice && hasNiche && hasDiff) return [];
   if (!hasProduct || !hasTarget) return [];
   if (!hasNiche) {
-    return ["先切入律师中的诉讼律师，他们查阅法条最频繁", "先做一线城市律所合伙人，再扩展"];
+    return ["先切入细分人群中最痛的那批，再逐步扩展", "先做一线城市标杆客户，验证后再复制"];
   }
   if (!hasDiff) {
-    return ["主打无摄像头隐私设计，客户在敏感场合也能用", "差异化是即时调取法条，比翻书快 10 倍"];
+    return ["差异化在于新渠道红利，比竞品更早触达目标人群", "主打服务体验和口碑，形成复购闭环"];
   }
   if (!hasPrice) {
     return ["客单价约 5 万/年，订阅制", "按年付费，单客 3–8 万不等"];
@@ -132,7 +132,8 @@ export function ChatInterface() {
   const [isSending, setIsSending] = useState(false);
 
   const [error, setError] = useState<Error | undefined>(undefined);
-  
+  const lastAutoExtractMsgIdRef = useRef<string | null>(null);
+
   // Initialize session ID and anonymous identity (for session list ownership)
   useEffect(() => {
     if (!sessionId) setSessionId(uuidv4());
@@ -239,6 +240,33 @@ export function ChatInterface() {
     setChatLoading(isLoading);
   }, [isLoading, setChatLoading]);
 
+  // Auto-complete: when assistant finishes and canvas is incomplete (5 fields + scores but no summary/actionList), trigger extract after 3s (once per assistant message)
+  useEffect(() => {
+    if (isLoading || currentAgentId !== 'gxx') return;
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || lastMsg.role !== 'assistant') return;
+    if (lastAutoExtractMsgIdRef.current === lastMsg.id) return;
+
+    // Avoid loop: do not auto-trigger if last user message was our extract prompt
+    const lastUserMsg = [...messages].reverse().find((m: { role?: string }) => m.role === 'user') as { content?: string; parts?: { text?: string }[] } | undefined;
+    const lastUserText = typeof lastUserMsg?.content === 'string' ? lastUserMsg.content : (Array.isArray(lastUserMsg?.parts) ? (lastUserMsg.parts as { text?: string }[]).map((p) => p.text ?? '').join('') : '');
+    if (lastUserText?.includes('请根据当前对话历史重新提取')) return;
+
+    const g = canvasData?.gxx;
+    const empty = (v: unknown) => v == null || v === '' || v === '等待输入...';
+    const filledCount = [g?.product, g?.target, g?.price, g?.niche, g?.diff].filter((v) => !empty(v)).length;
+    const hasAnyScore = ((g?.scores?.high || 0) + (g?.scores?.small || 0) + (g?.scores?.new || 0)) > 0;
+    const missingSummaryOrActions = !g?.summary?.trim() || !Array.isArray(g?.actionList) || g.actionList.length === 0;
+
+    if (filledCount < 5 || !hasAnyScore || !missingSummaryOrActions) return;
+
+    const timer = setTimeout(() => {
+      lastAutoExtractMsgIdRef.current = lastMsg.id;
+      setPendingExtractMessage('请根据当前对话历史重新提取并更新画布所有字段。务必调用 updateCanvas 填写 summary、actionList、scores: { high, small, new }（各 0-5 分）、scoreReasons，四者缺一不可。');
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [isLoading, messages, currentAgentId, canvasData, setPendingExtractMessage]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement> | React.ChangeEvent<HTMLInputElement>) => {
     setInput(e.target.value);
   };
@@ -293,9 +321,9 @@ export function ChatInterface() {
   }, [pendingExtractMessage, setPendingExtractMessage]);
 
   const quickReplies = [
+    "我有成熟 SaaS 业务，想拓展新渠道或新品类",
     "我想做面向大企业的员工心理健康 AI 服务",
-    "我的产品是智能 AI 眼镜",
-    "想做一个针对留学生的求职辅导平台"
+    "现有业务增长放缓，想探索第二增长曲线"
   ];
 
   const isWelcomeOnly = messages.length === config.welcomeMessages.length;
@@ -340,7 +368,7 @@ export function ChatInterface() {
     !isLoading && lastIsAssistant && suggestedReplies.length === 0 && fallbackReplies.length > 0 && !isConsultationComplete;
   const chatPlaceholder =
     isConsultationComplete
-      ? "可继续追问或导出报告..."
+      ? "可继续追问、复诊更新诊断或导出报告..."
       : currentAgentId === "gxx"
         ? getPlaceholderForGxx(canvasData)
         : "直接打字回复...";
@@ -651,9 +679,9 @@ export function ChatInterface() {
                          {fallbackReplies.map((reply: string, i: number) => {
                            const isExpanded = expandedReplies.has(i);
                            const extendedPrompts = [
-                             "能详细说说为什么选择这个切入点吗？有什么具体的市场数据或案例支持？",
-                             "这个方向的具体实施步骤是什么？需要哪些资源？",
-                             "这个建议的风险点在哪里？如何规避？"
+                             "这个切入点的市场数据或标杆案例有哪些？",
+                             "实施这个方向需要哪些资源？团队和资金大概要多少？",
+                             "拓展过程中的主要风险是什么？如何规避？"
                            ];
                            return (
                              <div key={i} className="flex flex-col gap-2 w-full">

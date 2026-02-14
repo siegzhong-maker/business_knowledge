@@ -101,7 +101,15 @@ export function GaoXiaoxinView() {
   }, [resetCanvas, sessionId, anonymousId]);
 
   const handleExtractFromChat = useCallback(() => {
-    setPendingExtractMessage('请根据当前对话历史重新提取并更新画布所有字段。务必调用 updateCanvas 填写 scores: { high, small, new }（各 0-5 分），用于生成雷达图，不可省略。');
+    setPendingExtractMessage('请根据当前对话历史重新提取并更新画布所有字段。务必调用 updateCanvas 填写 scores: { high, small, new }（各 0-5 分）、summary、actionList、scoreReasons，用于生成雷达图与诊断，不可省略。');
+  }, [setPendingExtractMessage]);
+
+  const handleCompleteDiagnosis = useCallback(() => {
+    setPendingExtractMessage('请根据当前对话历史重新提取并更新画布所有字段。务必调用 updateCanvas 填写 summary、actionList、scores: { high, small, new }（各 0-5 分）、scoreReasons，四者缺一不可。');
+  }, [setPendingExtractMessage]);
+
+  const handleFollowUpConsultation = useCallback(() => {
+    setPendingExtractMessage('我已完成部分行动建议，想更新诊断。请根据当前画布（含已勾选的行动）和对话历史，重新评估并调用 updateCanvas 更新 summary、actionList、scores。务必提供 scores 用于雷达图。');
   }, [setPendingExtractMessage]);
 
   // Flush pending changes on unmount or session change
@@ -195,6 +203,18 @@ export function GaoXiaoxinView() {
               <Sparkles className="w-3.5 h-3.5" />
               从对话重新提取
             </button>
+            {Array.isArray(data.actionList) && data.actionList.length > 0 && (
+              <button
+                type="button"
+                onClick={handleFollowUpConsultation}
+                disabled={chatLoading}
+                title="基于已完成的行动更新诊断"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition-colors text-xs font-medium border border-emerald-200 disabled:opacity-50 disabled:pointer-events-none"
+              >
+                <ArrowRight className="w-3.5 h-3.5" />
+                复诊（更新诊断）
+              </button>
+            )}
             <button
               type="button"
               onClick={handleResetCanvas}
@@ -256,12 +276,37 @@ export function GaoXiaoxinView() {
              )}
            </div>
            {hasAnyScore && (
-             <div className="mt-8 text-center">
-               <div className="text-[10px] font-bold text-[#475569] uppercase tracking-widest">综合评估得分</div>
-               <div className="text-4xl font-black text-[#2563eb] tracking-tighter mt-1">
-                 {totalScorePercent}
+             <>
+               <div className="mt-8 text-center">
+                 <div className="text-[10px] font-bold text-[#475569] uppercase tracking-widest">综合评估得分</div>
+                 <div className="text-4xl font-black text-[#2563eb] tracking-tighter mt-1">
+                   {totalScorePercent}
+                 </div>
                </div>
-             </div>
+               {data.scores?.high != null || data.scores?.small != null || data.scores?.new != null ? (
+                 (() => {
+                   const reasons = data.scoreReasons as { high?: string; small?: string; new?: string } | undefined;
+                   const items = [
+                     { label: '高', score: data.scores?.high, reason: reasons?.high },
+                     { label: '小', score: data.scores?.small, reason: reasons?.small },
+                     { label: '新', score: data.scores?.new, reason: reasons?.new },
+                   ].filter((i) => i.reason != null && i.reason.trim() !== '');
+                   if (items.length === 0) return null;
+                   return (
+                     <div className="mt-4 w-full space-y-2 text-left">
+                       <div className="text-[10px] font-bold text-[#475569] uppercase tracking-widest">评分依据</div>
+                       {items.map((item, i) => (
+                         <div key={i} className="text-xs text-[#475569] pl-1">
+                           <span className="font-semibold text-[#334155]">{item.label}</span>
+                           {item.score != null && <span className="text-[#2563eb] ml-1">({item.score} 分)</span>}
+                           ：{item.reason}
+                         </div>
+                       ))}
+                     </div>
+                   );
+                 })()
+               ) : null}
+             </>
            )}
         </div>
       </div>
@@ -278,6 +323,20 @@ export function GaoXiaoxinView() {
           </div>
         ) : null;
       })()}
+
+      {filledCount >= 5 && hasAnyScore && (!data.summary?.trim() || !Array.isArray(data.actionList) || data.actionList.length === 0) && (
+        <div className="z-10 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-[#78350f] flex flex-col gap-2">
+          <span className="font-semibold">诊断总结或行动清单未完整生成。点击下方按钮自动补全。</span>
+          <button
+            type="button"
+            onClick={handleCompleteDiagnosis}
+            disabled={chatLoading}
+            className="self-start px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:pointer-events-none"
+          >
+            补全诊断
+          </button>
+        </div>
+      )}
       
       <div className={`flex-1 mt-2 pt-5 border-t border-slate-100 transition-opacity duration-700 ${(!data.summary && (!data.actionList || data.actionList.length === 0)) ? 'opacity-70' : 'opacity-100'}`}>
         <h3 className="text-sm font-semibold text-[#1e293b] flex items-center gap-2 mb-4">
@@ -287,6 +346,9 @@ export function GaoXiaoxinView() {
           <p className={`text-sm leading-relaxed font-semibold ${data.summary ? 'text-[#1e293b]' : 'text-[#475569] italic'}`}>
             {data.summary || '当前数据不足，AI 分析引擎待命中，请继续在左侧与顾问交流...'}
           </p>
+          {data.summary && (
+            <p className="text-[10px] text-[#94a3b8] mt-2">诊断依据来自高小新会议纪要知识库</p>
+          )}
         </div>
         
         <h4 className="text-xs font-bold text-[#475569] uppercase tracking-wider mb-3 ml-1">Action List</h4>
