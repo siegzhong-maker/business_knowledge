@@ -15,7 +15,7 @@ export interface SessionItem {
 }
 
 export function SessionListDropdown() {
-  const { anonymousId, sessionId, setSessionId, setAgent } = useAgentStore();
+  const { anonymousId, sessionId, setSessionId, setAgent, setSessionRestoreInProgress } = useAgentStore();
   const [open, setOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -74,6 +74,7 @@ export function SessionListDropdown() {
                       <button
                         type="button"
                         onClick={() => {
+                          setSessionRestoreInProgress(true);
                           setAgent(s.agentId);
                           setSessionId(s.id);
                           setOpen(false);

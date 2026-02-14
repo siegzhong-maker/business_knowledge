@@ -78,11 +78,8 @@ export async function POST(req: Request) {
     let currentCanvasData: any = null;
     if (sessionId) {
       try {
-        const session = await prisma.session.findUnique({
-          where: { id: sessionId },
-          select: { currentCanvasData: true }
-        });
-        currentCanvasData = session?.currentCanvasData;
+        const session = await prisma.session.findUnique({ where: { id: sessionId } });
+        currentCanvasData = session && 'currentCanvasData' in session ? (session as { currentCanvasData?: unknown }).currentCanvasData : null;
       } catch (e) {
         console.error('Failed to fetch session context:', e);
       }
@@ -174,45 +171,50 @@ export async function POST(req: Request) {
           parameters: agent.schema,
           execute: async (data: any) => {
             // This execution happens on the server.
-            // Save canvas snapshot to DB
+            // Merge with existing canvas so partial updates do not overwrite other fields.
+            let merged = data;
             if (sessionId) {
                try {
-                 // Update Session with latest canvas data
+                 const existing = await prisma.session.findUnique({ where: { id: sessionId } });
+                 const existingData = (existing && 'currentCanvasData' in existing ? (existing as { currentCanvasData?: unknown }).currentCanvasData ?? null : null) as Record<string, unknown> | null;
+                 merged = { ...(existingData && typeof existingData === 'object' ? existingData : {}), ...(data && typeof data === 'object' ? data : {}) };
+
                  await prisma.session.update({
                     where: { id: sessionId },
-                    data: { currentCanvasData: data } as Prisma.SessionUpdateInput,
+                    data: { currentCanvasData: merged } as Prisma.SessionUpdateInput,
                  });
 
                  await prisma.report.create({
                    data: {
                      sessionId,
-                     content: data, // JSON field
+                     content: merged,
                    }
                  });
                } catch (e) {
                  console.error('Failed to save canvas report:', e);
                }
             }
-            return data;
+            return merged;
           },
         } as any),
       },
       toolChoice: 'auto',
       onFinish: async (completion) => {
-        // Save assistant message to DB
-        if (sessionId) {
-          try {
-            await prisma.message.create({
-              data: {
-                sessionId,
-                role: 'assistant',
-                content: completion.text,
-                toolInvocations: (completion as any).toolInvocations ?? completion.steps?.flatMap((s: any) => s.toolInvocations ?? []) ?? [],
-              } as Prisma.MessageUncheckedCreateInput,
-            });
-          } catch (e) {
-             console.error('Failed to save assistant message:', e);
-          }
+        if (!sessionId) return;
+        try {
+          const content = typeof completion?.text === 'string' ? completion.text : '';
+          const rawTools = (completion as { toolInvocations?: unknown[] })?.toolInvocations ?? (completion as { steps?: { toolInvocations?: unknown[] }[] })?.steps?.flatMap((s: { toolInvocations?: unknown[] }) => s.toolInvocations ?? []) ?? [];
+          const toolInvocations = Array.isArray(rawTools) ? rawTools : [];
+          await prisma.message.create({
+            data: {
+              sessionId,
+              role: 'assistant',
+              content,
+              toolInvocations,
+            } as Prisma.MessageUncheckedCreateInput,
+          });
+        } catch (e) {
+          console.error('Failed to save assistant message:', e);
         }
       },
       onError: (error) => {

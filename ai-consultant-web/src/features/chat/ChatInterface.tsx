@@ -123,7 +123,7 @@ function isPlaceholderLikeListItem(text: string): boolean {
 }
 
 export function ChatInterface() {
-  const { currentAgentId, setAgent, updateCanvasData, canvasData, sessionId, setSessionId, anonymousId, setAnonymousId, resetCanvas, setChatLoading } = useAgentStore();
+  const { currentAgentId, setAgent, updateCanvasData, canvasData, sessionId, setSessionId, anonymousId, setAnonymousId, resetCanvas, setChatLoading, sessionRestoreInProgress, setSessionRestoreInProgress } = useAgentStore();
   const config = agents[currentAgentId];
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -167,20 +167,25 @@ export function ChatInterface() {
         const params = new URLSearchParams({ sessionId });
         if (anonymousId) params.set('anonymousId', anonymousId);
         const res = await fetch(`/api/chat?${params.toString()}`);
-        if (!res.ok) return;
+        if (!res.ok) {
+          setSessionRestoreInProgress(false);
+          return;
+        }
         const data = await res.json();
 
-        // 1. Restore Messages
+        // 1. Restore Messages (use parts for SDK compatibility with convertToModelMessages)
         if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
-          const restoredMessages = data.messages.map((m: any) => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            // Map Prisma toolInvocations to UI shape if needed
-            // useChat handles 'toolInvocations' property on message object
-            toolInvocations: m.toolInvocations, 
-            createdAt: new Date(m.createdAt)
-          }));
+          const restoredMessages = data.messages.map((m: any) => {
+            const text = typeof m.content === 'string' ? m.content : '';
+            return {
+              id: m.id,
+              role: m.role,
+              content: text,
+              parts: [{ type: 'text' as const, text }],
+              toolInvocations: Array.isArray(m.toolInvocations) ? m.toolInvocations : undefined,
+              createdAt: new Date(m.createdAt),
+            };
+          });
           setMessages(restoredMessages);
         }
 
@@ -188,13 +193,16 @@ export function ChatInterface() {
         if (data.canvasData && data.agentId) {
           updateCanvasData(data.agentId, data.canvasData);
         }
+
+        setSessionRestoreInProgress(false);
       } catch (error) {
         console.warn('Failed to hydrate session from server:', error);
+        setSessionRestoreInProgress(false);
       }
     };
 
     fetchSession();
-  }, [sessionId, anonymousId, setMessages, updateCanvasData]);
+  }, [sessionId, anonymousId, setMessages, updateCanvasData, setSessionRestoreInProgress]);
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
@@ -373,14 +381,9 @@ export function ChatInterface() {
     }
   }, [messages]);
 
-  // Handle agent switching reset
-  // We use a key on the component in the parent page to force re-mount, 
-  // but if we are inside the same component, we need to reset manually.
-  // For now, let's assume the parent handles the key={currentAgentId} or we rely on `useChat`'s `initialMessages` update.
-  // Actually `useChat` does not automatically reset when `initialMessages` change.
-  // We should call `setMessages` when `currentAgentId` changes.
+  // Handle agent switching reset (skip when restoring a session from list to avoid overwriting with welcome)
   useEffect(() => {
-    // Reset messages with proper UIMessage shape when switching agents
+    if (sessionRestoreInProgress) return;
     setMessages(
       config.welcomeMessages.map((m, i) => ({
         id: `welcome-${config.id}-${i}`,
@@ -390,7 +393,7 @@ export function ChatInterface() {
     );
     setInput('');
     setError(undefined);
-  }, [currentAgentId, config.welcomeMessages, setMessages, config.id]);
+  }, [currentAgentId, config.welcomeMessages, setMessages, config.id, sessionRestoreInProgress]);
 
 
   return (

@@ -65,3 +65,7 @@ npm run dev
     - BMC：`bmc-canvas-YYYY-MM-DD.md`（包含九宫格各块内容）。
 
 > 如果未配置 `OPENROUTER_API_KEY`，接口请求会失败，前端会在聊天区域提示错误；请确保本地 `.env.local` 中的密钥可用。
+
+### 6. 知识库（可选）
+
+高小新智能体的系统提示会注入「会议纪要」知识库，用于引用案例与推理。知识库文件路径：`data/knowledge_base.json`。若该文件不存在或格式有误，服务端会使用占位文案，不会报错；详见 `data/README.md`。

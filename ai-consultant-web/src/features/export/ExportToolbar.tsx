@@ -88,8 +88,7 @@ export async function previewGxxReportAsImage(): Promise<string | null> {
 export async function exportGxxReportToPdf(): Promise<void> {
   const el = document.querySelector<HTMLElement>('[data-pdf-export]');
   if (!el) {
-    console.warn('PDF export target not found');
-    return;
+    throw new Error('请先完成咨询以生成报告');
   }
   
   // Store original styles

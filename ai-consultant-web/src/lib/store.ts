@@ -9,12 +9,15 @@ export interface AgentState {
   anonymousId: string | null; // Phase 1: stable identity for session list (no login)
   messages: Message[];
   chatLoading: boolean;
+  // Ephemeral: true when session list selected a session (skip agent-reset welcome overwrite)
+  sessionRestoreInProgress: boolean;
   // Store canvas data for each agent: { gxx: {...}, bmc: {...} }
   canvasData: Record<string, any>;
 
   setAgent: (agentId: string) => void;
   setSessionId: (sessionId: string) => void;
   setAnonymousId: (anonymousId: string) => void;
+  setSessionRestoreInProgress: (v: boolean) => void;
   setMessages: (messages: Message[]) => void;
   setChatLoading: (loading: boolean) => void;
   addMessage: (message: Message) => void;
@@ -30,6 +33,7 @@ export const useAgentStore = create<AgentState>()(
       anonymousId: null,
       messages: [],
       chatLoading: false,
+      sessionRestoreInProgress: false,
       canvasData: {
         gxx: agents.gxx.initialState,
         bmc: agents.bmc.initialState,
@@ -38,6 +42,7 @@ export const useAgentStore = create<AgentState>()(
       setAgent: (agentId) => set({ currentAgentId: agentId, messages: [] }), // Reset chat on switch for now
       setSessionId: (sessionId) => set({ sessionId }),
       setAnonymousId: (anonymousId) => set({ anonymousId }),
+      setSessionRestoreInProgress: (sessionRestoreInProgress) => set({ sessionRestoreInProgress }),
       setMessages: (messages) => set({ messages }),
       setChatLoading: (chatLoading) => set({ chatLoading }),
       addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
