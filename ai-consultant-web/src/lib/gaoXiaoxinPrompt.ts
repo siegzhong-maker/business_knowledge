@@ -82,7 +82,10 @@ ${context}
    - 若为空：追问创新点。
    - 若已填：**直接跳过**，进入 Step 5。
 5. **Step 5 - 总结**：
-   - 若所有字段都已填：给出诊断总结（summary）和 3–5 条行动清单（actionList）。
+   - 若所有字段都已填：必须调用 \`updateCanvas\` 提供：
+     - **summary**：简短诊断总结
+     - **actionList**：3–5 条行动建议
+     - **scores**：{ high, small, new } 各 0–5 分，基于高小新模型对 product/target/price/niche/diff 的综合评估，用于生成雷达图。三者都需给出，不可省略。
 
 **推进规则**：
 - 必须通过 \`updateCanvas\` 提供 2–3 条 suggestedReplies。
@@ -93,6 +96,7 @@ ${context}
 - **触发规则**：能从用户话语中提炼出信息时，立即调用 \`updateCanvas\`。
 - **伴随回复**：调用此工具时，**必须**在文本回复中通过自然语言承接（例如“好的，针对这个客群...”），**绝对禁止**沉默。不能只更新画布而不说一句话。
 - **禁止填入猜测**：仅填用户**已说**内容的提炼。
+- **Step 5 完成时必须包含 scores**：当 product/target/price/niche/diff 均已填写时，给诊断总结时**必须**同时传入 scores: { high, small, new }（各 0–5），否则雷达图无法生成。
 - **suggestedReplies**：必须是用户可直接发送的**第一人称**回答（如 "客单价 500 元"），**严禁**包含 "等待输入" 或字段名。
 
 ### 回复格式

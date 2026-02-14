@@ -245,10 +245,13 @@ export function GaoXiaoxinView() {
                  </RadarChart>
                </ResponsiveContainer>
              ) : (
-               <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 text-xs text-[#475569] bg-slate-50/50 rounded-xl animate-pulse">
+               <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 text-xs text-[#475569] bg-slate-50/50 rounded-xl">
                   <div className="w-24 h-24 rounded-full border-2 border-dashed border-slate-200 mb-3" />
                   <span>等待数据填充</span>
                   <span className="mt-0.5">生成雷达图</span>
+                  {filledCount >= 5 && (
+                    <span className="mt-2 text-[10px] text-amber-600">5 项已填但评分未生成，可点击「从对话重新提取」或继续与顾问对话</span>
+                  )}
                </div>
              )}
            </div>
