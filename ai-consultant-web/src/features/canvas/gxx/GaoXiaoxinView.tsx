@@ -101,7 +101,7 @@ export function GaoXiaoxinView() {
   }, [resetCanvas, sessionId, anonymousId]);
 
   const handleExtractFromChat = useCallback(() => {
-    setPendingExtractMessage('请根据当前对话历史重新提取并更新画布所有字段（product、target、price、niche、diff、scores、summary、actionList）。');
+    setPendingExtractMessage('请根据当前对话历史重新提取并更新画布所有字段。务必调用 updateCanvas 填写 scores: { high, small, new }（各 0-5 分），用于生成雷达图，不可省略。');
   }, [setPendingExtractMessage]);
 
   // Flush pending changes on unmount or session change
