@@ -4,8 +4,15 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAgentStore } from '@/lib/store';
 import { agents } from '@/features/agents/config';
 import { ExportButton } from '@/features/export/ExportToolbar';
-import { Target, Radar as RadarIcon, Lightbulb, LayoutDashboard, ArrowRight, RotateCcw, Sparkles } from 'lucide-react';
+import { Target, Radar as RadarIcon, Lightbulb, LayoutDashboard, ArrowRight, RotateCcw, Sparkles, Trophy, Sprout, TrendingUp } from 'lucide-react';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const EMPTY_PLACEHOLDER = '等待输入...';
 function isFilled(v: unknown): boolean {
@@ -184,7 +191,37 @@ export function GaoXiaoxinView() {
             商业可行性诊断书
           </h1>
           <p className="text-[#64748b] text-sm mt-1">基于高小新战略模型实时生成</p>
-          <p className="text-xs text-[#475569] mt-1">{progressLabel}</p>
+          <div className="flex items-center gap-2 mt-2">
+            <Select
+              value={data.stage || '0-1'}
+              onValueChange={(val) => handleCanvasEdit({ stage: val })}
+            >
+              <SelectTrigger className="h-8 w-[140px] text-xs font-medium border-slate-200 bg-slate-50 hover:bg-slate-100 transition-colors">
+                <SelectValue placeholder="选择阶段" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0-1" className="text-xs">
+                  <div className="flex items-center gap-2">
+                    <Sprout className="w-3.5 h-3.5 text-blue-500" />
+                    <span>0-1 生存阶段</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="1-10" className="text-xs">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="w-3.5 h-3.5 text-cyan-500" />
+                    <span>1-10 增长阶段</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="10-100" className="text-xs">
+                  <div className="flex items-center gap-2">
+                    <Trophy className="w-3.5 h-3.5 text-amber-500" />
+                    <span>10-100 成王阶段</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-xs text-[#94a3b8]">· {progressLabel}</span>
+          </div>
         </div>
         <div data-pdf-hide className="flex flex-col items-end gap-1">
           <p className="text-[10px] text-[#94a3b8] max-w-[220px] text-right text-balance">画布随 AI 回复自动更新，您也可点击字段直接修改</p>

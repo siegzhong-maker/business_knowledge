@@ -21,6 +21,7 @@ const gxxSchema = z.object({
   summary: z.string().optional().describe("简短诊断总结"),
   actionList: z.array(z.string()).optional().describe("3-5个具体的下一步行动建议"),
   suggestedReplies: z.array(z.string()).optional().describe("每轮回复建议提供 1-2 条，作为用户可一键发送的快捷选项，便于推进对话"),
+  stage: z.enum(['0-1', '1-10', '10-100']).optional().describe("企业发展阶段"),
 });
 
 // Schema for BMC
@@ -54,6 +55,7 @@ export const agents: Record<string, AgentConfig> = {
       actionList: [],
       actionListChecked: [] as boolean[],
       suggestedReplies: [],
+      stage: '0-1',
     },
     welcomeMessages: [
       "您好！我是您的专属商业顾问，专注**企业拓展与创新**。无论您是从零验证新项目，还是基于现有业务拓展新渠道/新品类，我都会用「高小新」模型帮您看清天花板。",
