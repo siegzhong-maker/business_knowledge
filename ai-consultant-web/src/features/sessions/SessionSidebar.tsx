@@ -23,6 +23,7 @@ export interface SessionSidebarProps {
 export function SessionSidebar({ onCollapse, onNewChat }: SessionSidebarProps = {}) {
   const {
     anonymousId,
+    setAnonymousId,
     sessionId,
     setSessionId,
     setAgent,
@@ -33,6 +34,7 @@ export function SessionSidebar({ onCollapse, onNewChat }: SessionSidebarProps = 
   } = useAgentStore();
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
 
   useEffect(() => {
     if (!anonymousId) return;
@@ -91,6 +93,17 @@ export function SessionSidebar({ onCollapse, onNewChat }: SessionSidebarProps = 
       }
     } catch {
       // ignore
+    }
+  };
+  
+  const handleEditAnonymousId = () => {
+    const newId = prompt('请输入您的匿名ID (UUID格式) 以恢复历史记录:', anonymousId || '');
+    if (newId && newId.trim() !== anonymousId) {
+      if (confirm('更改 ID 将切换到新的用户身份，当前未保存的会话可能丢失。确定吗？')) {
+        setAnonymousId(newId.trim());
+        // Force refresh session list
+        invalidateSessionList();
+      }
     }
   };
 
@@ -207,6 +220,29 @@ export function SessionSidebar({ onCollapse, onNewChat }: SessionSidebarProps = 
           </ul>
         )}
       </div>
+      
+      {/* Anonymous ID Debug Footer */}
+      <div 
+        className="p-2 border-t border-slate-100 text-[10px] text-slate-400 text-center cursor-pointer hover:text-slate-600 transition-colors"
+        onClick={() => setShowDebug(!showDebug)}
+        title="点击显示/隐藏调试信息"
+      >
+        ID: {anonymousId?.slice(0, 8)}...
+      </div>
+      
+      {showDebug && (
+        <div className="p-2 bg-slate-50 border-t border-slate-100 text-xs">
+          <div className="mb-1 text-slate-500 font-mono break-all">{anonymousId}</div>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="w-full h-7 text-xs"
+            onClick={handleEditAnonymousId}
+          >
+            修改 ID (恢复历史)
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
