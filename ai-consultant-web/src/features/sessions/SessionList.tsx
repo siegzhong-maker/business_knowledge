@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { useAgentStore } from '@/lib/store';
 import { agents } from '@/features/agents/config';
 import { Button } from '@/components/ui/button';
-import { History } from 'lucide-react';
+import { History, Trash2 } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface SessionItem {
   id: string;
@@ -15,7 +16,15 @@ export interface SessionItem {
 }
 
 export function SessionListDropdown() {
-  const { anonymousId, sessionId, setSessionId, setAgent, setSessionRestoreInProgress } = useAgentStore();
+  const {
+    anonymousId,
+    sessionId,
+    setSessionId,
+    setAgent,
+    setSessionRestoreInProgress,
+    sessionListVersion,
+    invalidateSessionList,
+  } = useAgentStore();
   const [open, setOpen] = useState(false);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -30,7 +39,7 @@ export function SessionListDropdown() {
       })
       .catch(() => setSessions([]))
       .finally(() => setLoading(false));
-  }, [open, anonymousId]);
+  }, [open, anonymousId, sessionListVersion]);
 
   const agentName = (id: string) => agents[id as keyof typeof agents]?.name ?? id;
   const formatTime = (iso: string) => {
@@ -41,6 +50,26 @@ export function SessionListDropdown() {
       return sameDay ? d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : d.toLocaleDateString('zh-CN');
     } catch {
       return '';
+    }
+  };
+
+  const handleDeleteSession = async (e: React.MouseEvent, s: SessionItem) => {
+    e.stopPropagation();
+    if (!anonymousId) return;
+    if (!confirm('确定删除该会话？对话记录将无法恢复。')) return;
+    try {
+      const res = await fetch(
+        `/api/sessions/${encodeURIComponent(s.id)}?anonymousId=${encodeURIComponent(anonymousId)}`,
+        { method: 'DELETE' }
+      );
+      if (!res.ok) return;
+      invalidateSessionList();
+      if (s.id === sessionId) {
+        setSessionId(uuidv4());
+      }
+      setOpen(false);
+    } catch {
+      // ignore
     }
   };
 
@@ -70,23 +99,34 @@ export function SessionListDropdown() {
               ) : (
                 <ul className="py-1">
                   {sessions.map((s) => (
-                    <li key={s.id}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSessionRestoreInProgress(true);
-                          setAgent(s.agentId);
-                          setSessionId(s.id);
-                          setOpen(false);
-                        }}
-                        className={`w-full text-left px-4 py-2.5 text-sm hover:bg-slate-50 transition-colors border-b border-slate-50 last:border-0 flex flex-col gap-0.5 ${s.id === sessionId ? 'bg-blue-50/80 text-blue-800' : 'text-slate-700'}`}
-                      >
-                        <span className="font-medium truncate">{s.title || '未命名会话'}</span>
-                        <span className="text-xs text-slate-500 flex items-center justify-between">
-                          <span>{agentName(s.agentId)}</span>
-                          <span>{formatTime(s.updatedAt)}</span>
-                        </span>
-                      </button>
+                    <li key={s.id} className="border-b border-slate-50 last:border-0 group">
+                      <div className="flex items-stretch">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSessionRestoreInProgress(true);
+                            setAgent(s.agentId);
+                            setSessionId(s.id);
+                            setOpen(false);
+                          }}
+                          className={`flex-1 min-w-0 text-left px-4 py-2.5 text-sm hover:bg-slate-50 transition-colors flex flex-col gap-0.5 ${s.id === sessionId ? 'bg-blue-50/80 text-blue-800' : 'text-slate-700'}`}
+                        >
+                          <span className="font-medium truncate">{s.title || '未命名会话'}</span>
+                          <span className="text-xs text-slate-500 flex items-center justify-between">
+                            <span>{agentName(s.agentId)}</span>
+                            <span>{formatTime(s.updatedAt)}</span>
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteSession(e, s)}
+                          className="shrink-0 p-2 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="删除会话"
+                          aria-label="删除会话"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </li>
                   ))}
                 </ul>

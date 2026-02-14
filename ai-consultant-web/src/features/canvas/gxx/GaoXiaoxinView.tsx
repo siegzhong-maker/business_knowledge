@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAgentStore } from '@/lib/store';
 import { ExportButton } from '@/features/export/ExportToolbar';
 import { Target, Radar as RadarIcon, Lightbulb, LayoutDashboard, ArrowRight } from 'lucide-react';
@@ -34,12 +34,73 @@ function getNextStepSuggestion(data: { product?: string; target?: string; price?
   return null;
 }
 
+const CANVAS_PERSIST_DEBOUNCE_MS = 400;
+
 export function GaoXiaoxinView() {
   const data = useAgentStore((state) => state.canvasData.gxx);
   const updateCanvasData = useAgentStore((state) => state.updateCanvasData);
+  const sessionId = useAgentStore((state) => state.sessionId);
+  const anonymousId = useAgentStore((state) => state.anonymousId);
   const chatLoading = useAgentStore((state) => state.chatLoading);
   const prevFieldsRef = useRef<Record<string, unknown>>({});
+  const persistTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingPersistRef = useRef<Record<string, unknown> | null>(null);
   const [flashingField, setFlashingField] = useState<string | null>(null);
+
+  const persistCanvasToDb = useCallback(
+    (patch: Record<string, unknown>) => {
+      if (!sessionId || !anonymousId) return;
+      pendingPersistRef.current = { ...(pendingPersistRef.current ?? {}), ...patch };
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+      
+      persistTimerRef.current = setTimeout(() => {
+        persistTimerRef.current = null;
+        const toSend = pendingPersistRef.current;
+        pendingPersistRef.current = null;
+        if (!toSend) return;
+        
+        fetch(
+            `/api/sessions/${encodeURIComponent(sessionId)}/canvas?anonymousId=${encodeURIComponent(anonymousId)}`,
+            {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ data: toSend }),
+              keepalive: true,
+            }
+          ).catch(e => console.warn('Failed to persist canvas:', e));
+      }, CANVAS_PERSIST_DEBOUNCE_MS);
+    },
+    [sessionId, anonymousId]
+  );
+
+  const handleCanvasEdit = useCallback(
+    (patch: Record<string, unknown>) => {
+      updateCanvasData('gxx', patch);
+      persistCanvasToDb(patch);
+    },
+    [updateCanvasData, persistCanvasToDb]
+  );
+
+  // Flush pending changes on unmount or session change
+  useEffect(() => {
+    return () => {
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+      if (pendingPersistRef.current && sessionId && anonymousId) {
+        // Flush pending data using keepalive
+        const toSend = pendingPersistRef.current;
+        pendingPersistRef.current = null;
+        fetch(
+          `/api/sessions/${encodeURIComponent(sessionId)}/canvas?anonymousId=${encodeURIComponent(anonymousId)}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: toSend }),
+            keepalive: true,
+          }
+        ).catch(e => console.warn('Failed to flush canvas on unmount:', e));
+      }
+    };
+  }, [sessionId, anonymousId]);
 
   const fieldsToTrack = ['product', 'target', 'price', 'niche', 'diff'] as const;
   useEffect(() => {
@@ -82,7 +143,7 @@ export function GaoXiaoxinView() {
   ];
 
   return (
-    <div data-pdf-export className="w-full max-w-4xl min-w-0 bg-white shadow-lg rounded-2xl border border-slate-200 p-8 flex flex-col gap-6 h-full overflow-y-auto fade-in relative">
+    <div data-pdf-export className="w-full min-w-0 bg-white shadow-lg rounded-2xl border border-slate-200 p-8 flex flex-col gap-6 h-full overflow-y-auto fade-in relative">
       <div data-pdf-hide className="absolute inset-0 z-0 opacity-[0.01] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
 
       <div className="flex justify-between items-start border-b border-slate-100 pb-5 z-10">
@@ -97,7 +158,7 @@ export function GaoXiaoxinView() {
         <div data-pdf-hide className="flex items-center gap-2">
             <span className={`px-3 py-1 border rounded-full text-xs font-medium flex items-center gap-1 transition-colors ${chatLoading ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-green-50 text-green-600 border-green-200'}`}>
                 <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${chatLoading ? 'bg-amber-500' : 'bg-green-500'}`}></span>
-                {chatLoading ? '思考并提取中...' : '监听会话中...'}
+                {chatLoading ? '思考并提取中...' : '跟随会话中...'}
             </span>
             <ExportButton />
         </div>
@@ -116,11 +177,11 @@ export function GaoXiaoxinView() {
             项目沙盘推演
           </h3>
           <div className="grid grid-cols-2 gap-3">
-             <FieldBox label="产品/服务形态" value={data.product} fieldKey="product" colSpan={2} flash={flashingField === 'product'} editable onSave={(v) => updateCanvasData('gxx', { product: v || undefined })} />
-             <FieldBox label="目标客群" value={data.target} fieldKey="target" flash={flashingField === 'target'} editable onSave={(v) => updateCanvasData('gxx', { target: v || undefined })} />
+             <FieldBox label="产品/服务形态" value={data.product} fieldKey="product" colSpan={2} flash={flashingField === 'product'} editable onSave={(v) => handleCanvasEdit({ product: v || undefined })} />
+             <FieldBox label="目标客群" value={data.target} fieldKey="target" flash={flashingField === 'target'} editable onSave={(v) => handleCanvasEdit({ target: v || undefined })} />
              <FieldBox label="利润天花板 (高)" value={data.price} fieldKey="price" highlight flash={flashingField === 'price'} />
-             <FieldBox label="破局切入点 (小)" value={data.niche} fieldKey="niche" colSpan={2} highlight flash={flashingField === 'niche'} editable onSave={(v) => updateCanvasData('gxx', { niche: v || undefined })} />
-             <FieldBox label="核心差异化 (新)" value={data.diff} fieldKey="diff" colSpan={2} highlight flash={flashingField === 'diff'} editable onSave={(v) => updateCanvasData('gxx', { diff: v || undefined })} />
+             <FieldBox label="破局切入点 (小)" value={data.niche} fieldKey="niche" colSpan={2} highlight flash={flashingField === 'niche'} editable onSave={(v) => handleCanvasEdit({ niche: v || undefined })} />
+             <FieldBox label="核心差异化 (新)" value={data.diff} fieldKey="diff" colSpan={2} highlight flash={flashingField === 'diff'} editable onSave={(v) => handleCanvasEdit({ diff: v || undefined })} />
           </div>
         </div>
         <div className="col-span-2 flex flex-col items-center justify-start p-5 bg-slate-50 rounded-2xl border border-slate-100 h-full">
@@ -139,8 +200,10 @@ export function GaoXiaoxinView() {
                  </RadarChart>
                </ResponsiveContainer>
              ) : (
-               <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 text-xs text-[#475569]">
-                 等待数据填充<br />生成雷达图
+               <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 text-xs text-[#475569] bg-slate-50/50 rounded-xl animate-pulse">
+                  <div className="w-24 h-24 rounded-full border-2 border-dashed border-slate-200 mb-3" />
+                  <span>等待数据填充</span>
+                  <span className="mt-0.5">生成雷达图</span>
                </div>
              )}
            </div>
@@ -192,7 +255,7 @@ export function GaoXiaoxinView() {
                       const next = [...(data.actionListChecked ?? [])];
                       while (next.length <= idx) next.push(false);
                       next[idx] = !next[idx];
-                      updateCanvasData('gxx', { actionListChecked: next });
+                      handleCanvasEdit({ actionListChecked: next });
                     }}
                     className="mt-1 w-4 h-4 text-blue-600 rounded border-slate-300 cursor-pointer"
                   />

@@ -11,10 +11,18 @@ export interface AgentState {
   chatLoading: boolean;
   // Ephemeral: true when session list selected a session (skip agent-reset welcome overwrite)
   sessionRestoreInProgress: boolean;
+  // Left sidebar: false = expanded (resizable px), true = collapsed (icon strip only)
+  sidebarCollapsed: boolean;
+  // Resizable layout widths (px), persisted
+  sidebarWidth: number;
+  chatWidth: number;
   // Store canvas data for each agent: { gxx: {...}, bmc: {...} }
   canvasData: Record<string, any>;
 
   setAgent: (agentId: string) => void;
+  setSidebarCollapsed: (v: boolean) => void;
+  setSidebarWidth: (w: number) => void;
+  setChatWidth: (w: number) => void;
   setSessionId: (sessionId: string) => void;
   setAnonymousId: (anonymousId: string) => void;
   setSessionRestoreInProgress: (v: boolean) => void;
@@ -23,6 +31,9 @@ export interface AgentState {
   addMessage: (message: Message) => void;
   updateCanvasData: (agentId: string, data: any) => void;
   resetCanvas: (agentId: string) => void;
+  /** Ephemeral: bump to trigger session list refetch (e.g. after send or delete). */
+  sessionListVersion: number;
+  invalidateSessionList: () => void;
 }
 
 export const useAgentStore = create<AgentState>()(
@@ -34,6 +45,9 @@ export const useAgentStore = create<AgentState>()(
       messages: [],
       chatLoading: false,
       sessionRestoreInProgress: false,
+      sidebarCollapsed: false,
+      sidebarWidth: 260,
+      chatWidth: 420,
       canvasData: {
         gxx: agents.gxx.initialState,
         bmc: agents.bmc.initialState,
@@ -43,6 +57,9 @@ export const useAgentStore = create<AgentState>()(
       setSessionId: (sessionId) => set({ sessionId }),
       setAnonymousId: (anonymousId) => set({ anonymousId }),
       setSessionRestoreInProgress: (sessionRestoreInProgress) => set({ sessionRestoreInProgress }),
+      setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+      setSidebarWidth: (sidebarWidth) => set({ sidebarWidth }),
+      setChatWidth: (chatWidth) => set({ chatWidth }),
       setMessages: (messages) => set({ messages }),
       setChatLoading: (chatLoading) => set({ chatLoading }),
       addMessage: (message) => set((state) => ({ messages: [...state.messages, message] })),
@@ -62,7 +79,10 @@ export const useAgentStore = create<AgentState>()(
           ...state.canvasData,
           [agentId]: agents[agentId].initialState
         }
-      }))
+      })),
+
+      sessionListVersion: 0,
+      invalidateSessionList: () => set({ sessionListVersion: Date.now() }),
     }),
     {
       name: 'ai-consultant-storage', // name of the item in the storage (must be unique)
@@ -71,8 +91,9 @@ export const useAgentStore = create<AgentState>()(
         currentAgentId: state.currentAgentId,
         sessionId: state.sessionId,
         anonymousId: state.anonymousId,
-        messages: state.messages,
-        canvasData: state.canvasData
+        sidebarCollapsed: state.sidebarCollapsed,
+        sidebarWidth: state.sidebarWidth,
+        chatWidth: state.chatWidth,
       }),
     }
   )

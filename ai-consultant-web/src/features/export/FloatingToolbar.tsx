@@ -34,7 +34,7 @@ export function FloatingToolbar() {
 
   return (
     <>
-      <div className="fixed bottom-6 left-[67%] -translate-x-1/2 glass-panel shadow-[0_8px_30px_rgb(0,0,0,0.08)] rounded-full px-4 py-2 flex items-center gap-2 z-50">
+      <div className="fixed bottom-6 left-[80%] -translate-x-1/2 glass-panel shadow-[0_8px_30px_rgb(0,0,0,0.08)] rounded-full px-4 py-2 flex items-center gap-2 z-50">
         <button
           type="button"
           onClick={handleOpenPreview}

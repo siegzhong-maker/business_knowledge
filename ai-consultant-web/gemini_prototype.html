@@ -117,7 +117,7 @@
                 <div class="flex gap-2">
                     <span id="sync-status" class="px-3 py-1 bg-green-50 text-green-600 border border-green-200 rounded-full text-xs font-medium flex items-center gap-1 transition-colors">
                         <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
-                        <span id="sync-text">监听会话中...</span>
+                        <span id="sync-text">跟随会话中...</span>
                     </span>
                 </div>
             </div>
@@ -301,7 +301,7 @@
                 if (i > text.length) {
                     clearInterval(interval);
                     el.innerHTML = text;
-                    setSyncStatus('监听会话中...', 'bg-green-500', 'text-green-600', 'bg-green-50');
+                    setSyncStatus('跟随会话中...', 'bg-green-500', 'text-green-600', 'bg-green-50');
                     if(callback) callback();
                     scrollToBottom();
                 }

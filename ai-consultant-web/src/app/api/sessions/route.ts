@@ -7,7 +7,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const anonymousId = searchParams.get('anonymousId');
   const agentId = searchParams.get('agentId');
-  const limit = Math.min(Math.max(parseInt(searchParams.get('limit') ?? '20', 10), 1), 100);
+  const limit = Math.min(Math.max(parseInt(searchParams.get('limit') ?? '20', 10), 10), 100);
   const cursor = searchParams.get('cursor');
 
   if (!anonymousId || anonymousId.trim() === '') {

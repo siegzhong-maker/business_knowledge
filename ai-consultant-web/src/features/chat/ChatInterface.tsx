@@ -5,8 +5,7 @@ import { DefaultChatTransport } from 'ai';
 import { useAgentStore } from '@/lib/store';
 import { agents } from '@/features/agents/config';
 import React, { useEffect, useRef, useState } from 'react';
-import { Bot, User, Send, ChevronDown, RotateCcw, Radar, LayoutGrid, RefreshCw, ChevronRight, Sparkles } from 'lucide-react';
-import { SessionListDropdown } from '@/features/sessions/SessionList';
+import { Bot, User, Send, RefreshCw, ChevronRight, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import ReactMarkdown from 'react-markdown';
@@ -123,11 +122,14 @@ function isPlaceholderLikeListItem(text: string): boolean {
 }
 
 export function ChatInterface() {
-  const { currentAgentId, setAgent, updateCanvasData, canvasData, sessionId, setSessionId, anonymousId, setAnonymousId, resetCanvas, setChatLoading, sessionRestoreInProgress, setSessionRestoreInProgress } = useAgentStore();
+  const { currentAgentId, updateCanvasData, canvasData, sessionId, setSessionId, anonymousId, setAnonymousId, setChatLoading, sessionRestoreInProgress, setSessionRestoreInProgress, invalidateSessionList } = useAgentStore();
   const config = agents[currentAgentId];
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [expandedReplies, setExpandedReplies] = useState<Set<number>>(new Set());
+  const sendingRef = useRef(false);
+  const restoringRef = useRef(false);
+  const [isSending, setIsSending] = useState(false);
 
   const [error, setError] = useState<Error | undefined>(undefined);
   
@@ -156,24 +158,36 @@ export function ChatInterface() {
     }
   });
 
-  // Hydrate session from server on load (restores messages and canvas)
+  // Unified session restore: on sessionId change, fetch from server (404 = new session, 200 = restore)
   useEffect(() => {
-    if (!sessionId) return;
-    
-    // Only fetch if we haven't loaded messages yet (or to force sync)
-    // For now, simple fetch on mount/sessionId change
+    if (!sessionId || !anonymousId) return;
+
+    restoringRef.current = true;
+    setSessionRestoreInProgress(true);
     const fetchSession = async () => {
       try {
-        const params = new URLSearchParams({ sessionId });
-        if (anonymousId) params.set('anonymousId', anonymousId);
+        const params = new URLSearchParams({ sessionId, anonymousId });
         const res = await fetch(`/api/chat?${params.toString()}`);
         if (!res.ok) {
+          // New session (404): welcome messages + initial canvas
+          if (res.status === 404) {
+            const agentConfig = agents[currentAgentId as keyof typeof agents];
+            const initialState = agentConfig?.initialState ?? {};
+            setMessages(
+              config.welcomeMessages.map((m, i) => ({
+                id: `welcome-${config.id}-${i}`,
+                role: 'assistant',
+                parts: [{ type: 'text' as const, text: m }],
+              }))
+            );
+            updateCanvasData(currentAgentId, initialState);
+          }
           setSessionRestoreInProgress(false);
           return;
         }
         const data = await res.json();
 
-        // 1. Restore Messages (use parts for SDK compatibility with convertToModelMessages)
+        // 1. Restore Messages
         if (data.messages && Array.isArray(data.messages) && data.messages.length > 0) {
           const restoredMessages = data.messages.map((m: any) => {
             const text = typeof m.content === 'string' ? m.content : '';
@@ -187,22 +201,37 @@ export function ChatInterface() {
             };
           });
           setMessages(restoredMessages);
+        } else {
+          setMessages(
+            config.welcomeMessages.map((m, i) => ({
+              id: `welcome-${config.id}-${i}`,
+              role: 'assistant',
+              parts: [{ type: 'text' as const, text: m }],
+            }))
+          );
         }
 
         // 2. Restore Canvas
         if (data.canvasData && data.agentId) {
           updateCanvasData(data.agentId, data.canvasData);
+        } else {
+          const agentConfig = agents[(data.agentId || currentAgentId) as keyof typeof agents];
+          if (agentConfig?.initialState) {
+            updateCanvasData(data.agentId || currentAgentId, agentConfig.initialState);
+          }
         }
 
         setSessionRestoreInProgress(false);
       } catch (error) {
         console.warn('Failed to hydrate session from server:', error);
         setSessionRestoreInProgress(false);
+      } finally {
+        restoringRef.current = false;
       }
     };
 
     fetchSession();
-  }, [sessionId, anonymousId, setMessages, updateCanvasData, setSessionRestoreInProgress]);
+  }, [sessionId, anonymousId, currentAgentId, setMessages, updateCanvasData, setSessionRestoreInProgress, config.welcomeMessages, config.id]);
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
@@ -222,15 +251,17 @@ export function ChatInterface() {
   };
 
   const handleSend = async (value: string) => {
+    if (sendingRef.current) return;
+    sendingRef.current = true;
+    setIsSending(true);
     setInput('');
     setError(undefined);
     setExpandedReplies(new Set()); // Clear expanded replies when sending
     if (currentAgentId === 'gxx') {
       updateCanvasData('gxx', { suggestedReplies: [] });
     }
-    
+
     try {
-      // `useChat` will construct the proper UIMessage with parts internally
       await sendMessage(
         { text: value },
         {
@@ -241,10 +272,14 @@ export function ChatInterface() {
           },
         },
       );
+      invalidateSessionList();
     } catch (err) {
       console.error('Failed to send message:', err);
       setError(err instanceof Error ? err : new Error('Failed to send message'));
       setInput(value);
+    } finally {
+      sendingRef.current = false;
+      setIsSending(false);
     }
   };
 
@@ -255,16 +290,37 @@ export function ChatInterface() {
   ];
 
   const isWelcomeOnly = messages.length === config.welcomeMessages.length;
+  const firstUserMessage = messages.find((m: any) => m.role === 'user') as { content?: string; parts?: { text?: string }[] } | undefined;
+  const sessionTitle =
+    firstUserMessage == null
+      ? '新会话'
+      : (typeof firstUserMessage.content === 'string'
+          ? firstUserMessage.content
+          : Array.isArray(firstUserMessage.parts)
+            ? firstUserMessage.parts.map((p) => p.text ?? '').join('')
+            : ''
+        ).trim().slice(0, 50) || '未命名会话';
   const lastMessage = messages[messages.length - 1];
   const lastIsAssistant = (lastMessage as any)?.role === "assistant";
+  const lastUserMessage = [...messages].reverse().find((m: any) => m.role === 'user') as { content?: string; parts?: { text?: string }[] } | undefined;
+  const lastUserMessageText = lastUserMessage == null ? '' : (typeof lastUserMessage.content === 'string' ? lastUserMessage.content : Array.isArray(lastUserMessage.parts) ? lastUserMessage.parts.map((p) => p.text ?? '').join('') : '').trim();
   const apiSuggestedReplies = (currentAgentId === 'gxx' ? canvasData?.gxx?.suggestedReplies : null) ?? [];
   const isValidSuggestedReply = (s: string) =>
     typeof s === 'string' &&
     s.trim().length > 3 &&
     !s.includes('等待输入') &&
     !/^[\u4e00-\u9fa5\/]+\s*[:：]\s*等待输入/.test(s.trim());
-  const suggestedReplies = (Array.isArray(apiSuggestedReplies) ? apiSuggestedReplies : [])
-    .filter(isValidSuggestedReply)
+  // Dedupe by content (keep first), and hide options identical to the last message the user sent
+  const suggestedRepliesRaw = (Array.isArray(apiSuggestedReplies) ? apiSuggestedReplies : []).filter(isValidSuggestedReply);
+  const seenContent = new Set<string>();
+  const suggestedReplies = suggestedRepliesRaw
+    .filter((s) => {
+      const t = s.trim();
+      if (seenContent.has(t)) return false;
+      seenContent.add(t);
+      if (lastUserMessageText && t === lastUserMessageText) return false;
+      return true;
+    })
     .slice(0, 3);
   const showSuggestedReplies =
     !isLoading && lastIsAssistant && suggestedReplies.length > 0;
@@ -281,15 +337,21 @@ export function ChatInterface() {
         : "直接打字回复...";
 
   // Watch for tool results to update canvas (AI SDK 6: parts with output; legacy: toolInvocations with result)
+  // Traverse all assistant messages so we pick up tool results from any message (streaming may split them).
   useEffect(() => {
-    // 1. Check the very last message first (most likely source of updates in streaming)
-    const latestMsg = messages[messages.length - 1];
-    if (!latestMsg || latestMsg.role !== 'assistant') return;
+    type PartLike = {
+      type: string;
+      toolInvocation?: { toolName?: string; state?: string; result?: unknown; output?: unknown; args?: unknown };
+      toolName?: string;
+      state?: string;
+      output?: unknown;
+      result?: unknown;
+      args?: unknown;
+    };
 
     const safeUpdateCanvas = (agentId: string, data: any) => {
-      if (!data) return;
-      
-      // Normalize 'scores' keys to lowercase (High -> high) to handle model inconsistency
+      if (!data || typeof data !== 'object') return;
+
       const normalizedData = { ...data };
       if (normalizedData.scores && typeof normalizedData.scores === 'object') {
         const normalizedScores: Record<string, number> = {};
@@ -299,7 +361,6 @@ export function ChatInterface() {
         normalizedData.scores = normalizedScores;
       }
 
-      // Ensure actionList is always an array so .map() in GaoXiaoxinView never throws
       if ('actionList' in normalizedData) {
         if (!Array.isArray(normalizedData.actionList)) {
           const raw = normalizedData.actionList;
@@ -316,60 +377,54 @@ export function ChatInterface() {
       updateCanvasData(agentId, normalizedData);
     };
 
-    // 2. Handle 'parts' (newer SDK: tool-invocation legacy shape or dynamic-tool / tool-* types)
-    type PartLike = {
-      type: string;
-      toolInvocation?: { toolName?: string; state?: string; result?: unknown; output?: unknown };
-      toolName?: string;
-      state?: string;
-      output?: unknown;
-      result?: unknown;
-    };
-    const parts: PartLike[] = Array.isArray(latestMsg.parts) ? (latestMsg.parts as PartLike[]) : [];
-    for (const p of parts) {
+    const applyToolFromPart = (p: PartLike) => {
       const toolResult = (x: PartLike): unknown => {
-        if (x.toolInvocation && (x.toolInvocation.result !== undefined || x.toolInvocation.output !== undefined)) {
-          return x.toolInvocation.result ?? x.toolInvocation.output;
+        if (x.toolInvocation != null) {
+          const r = x.toolInvocation.result ?? x.toolInvocation.output;
+          if (r !== undefined) return r;
+          if (x.toolInvocation.args !== undefined) return x.toolInvocation.args;
         }
         if (x.output !== undefined || x.result !== undefined) return x.output ?? x.result;
+        if (x.args !== undefined) return x.args;
         return undefined;
       };
-      // Legacy 'tool-invocation' shape
+      let name = '';
       if (p.type === 'tool-invocation' && p.toolInvocation) {
-        const name = p.toolInvocation.toolName?.toLowerCase();
+        name = p.toolInvocation.toolName?.toLowerCase() ?? '';
         if (name === 'updatecanvas') {
-          const result = p.toolInvocation.result ?? p.toolInvocation.output;
+          const result = p.toolInvocation.result ?? p.toolInvocation.output ?? p.toolInvocation.args;
           if (result != null && (p.toolInvocation.state === 'result' || p.toolInvocation.state === 'output-available' || result !== undefined)) {
             safeUpdateCanvas(currentAgentId, result);
           }
         }
-        continue;
+        return;
       }
-      // SDK 6 dynamic-tool / tool-* part
-      if (p.type === 'dynamic-tool' || p.type?.startsWith('tool-')) {
-        const name = (p.toolName ?? p.type?.replace(/^tool-/, '') ?? '').toLowerCase();
+      if (p.type === 'dynamic-tool' || p.type?.startsWith('tool-') || p.type === 'tool-call' || p.type === 'tool-result') {
+        name = (p.toolName ?? p.type?.replace(/^tool-/, '') ?? '').toLowerCase();
         if (name === 'updatecanvas') {
           const out = toolResult(p);
           if (out != null) safeUpdateCanvas(currentAgentId, out);
         }
       }
-    }
+    };
 
-    // 3. Handle 'toolInvocations' property (top-level on message)
-    const msgWithTools = latestMsg as { toolInvocations?: Array<{ toolName?: string; result?: unknown; args?: unknown }> };
-    if (Array.isArray(msgWithTools.toolInvocations)) {
-      msgWithTools.toolInvocations.forEach((tool: any) => {
-        if (tool?.toolName?.toLowerCase() === 'updatecanvas') {
-           // We accept both partial (args) and final (result) updates if possible, 
-           // but 'result' is safer. If 'args' are available during stream, we can use them too.
-           if ('result' in tool) {
-              safeUpdateCanvas(currentAgentId, tool.result);
-           } else if ('args' in tool) {
-              // Optional: Optimistic update from args while streaming
-              safeUpdateCanvas(currentAgentId, tool.args);
-           }
-        }
+    const applyToolInvocations = (msg: { toolInvocations?: Array<{ toolName?: string; result?: unknown; args?: unknown }> }) => {
+      const list = (msg as { toolInvocations?: unknown }).toolInvocations;
+      if (!Array.isArray(list)) return;
+      list.forEach((tool: any) => {
+        if (tool?.toolName?.toLowerCase() !== 'updatecanvas') return;
+        if (tool.result != null) safeUpdateCanvas(currentAgentId, tool.result);
+        else if (tool.args != null) safeUpdateCanvas(currentAgentId, tool.args);
       });
+    };
+
+    for (let i = 0; i < messages.length; i++) {
+      const msg = messages[i];
+      if (!msg || msg.role !== 'assistant') continue;
+
+      const parts: PartLike[] = Array.isArray(msg.parts) ? (msg.parts as PartLike[]) : [];
+      for (const p of parts) applyToolFromPart(p);
+      applyToolInvocations(msg as { toolInvocations?: Array<{ toolName?: string; result?: unknown; args?: unknown }> });
     }
   }, [messages, currentAgentId, updateCanvasData]);
 
@@ -381,79 +436,32 @@ export function ChatInterface() {
     }
   }, [messages]);
 
-  // Handle agent switching reset (skip when restoring a session from list to avoid overwriting with welcome)
-  useEffect(() => {
-    if (sessionRestoreInProgress) return;
-    setMessages(
-      config.welcomeMessages.map((m, i) => ({
-        id: `welcome-${config.id}-${i}`,
-        role: 'assistant',
-        parts: [{ type: 'text', text: m }],
-      })),
-    );
-    setInput('');
-    setError(undefined);
-  }, [currentAgentId, config.welcomeMessages, setMessages, config.id, sessionRestoreInProgress]);
 
 
   return (
-    <div className="w-[35%] min-w-[380px] max-w-[450px] bg-white border-r border-slate-200 flex flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] z-10 relative h-full">
-       {/* Header */}
-       <div className="flex-none px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-white/95 backdrop-blur z-30 relative">
-          <div className="flex items-center gap-3 cursor-pointer group relative">
-             <div className={`w-10 h-10 rounded-full flex items-center justify-center relative transition-transform group-hover:scale-105 ${config.iconColor}`}>
+    <div className="w-full flex flex-col relative h-full">
+       {/* Header: agent name + session title / loading */}
+       <div className="flex-none px-5 py-4 border-b border-slate-200 flex flex-col gap-1 bg-white/95 backdrop-blur z-30 relative">
+          <div className="flex items-center gap-3">
+             <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 relative ${config.iconColor}`}>
                 <Bot className="w-6 h-6" />
                 <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
              </div>
-             <div className="group relative">
-                <h2 className="font-semibold text-slate-900 text-sm flex items-center gap-1">
-                   {config.name}
-                   <ChevronDown className="w-4 h-4 text-slate-400 group-hover:text-blue-500 transition-colors" />
-                </h2>
+             <div>
+                <h2 className="font-semibold text-slate-900 text-sm">{config.name}</h2>
                 <p className="text-xs text-slate-500">{config.description}</p>
-                
-                {/* Dropdown (Hover implementation) */}
-                <div className="absolute top-full left-0 mt-2 w-64 bg-white rounded-xl shadow-xl border border-slate-100 hidden group-hover:flex flex-col overflow-hidden z-50">
-                   <div className="p-2 text-xs font-bold text-slate-400 uppercase tracking-wider bg-slate-50 border-b border-slate-100">核心智能体模型库</div>
-                   {Object.values(agents).map(agent => (
-                      <button key={agent.id} onClick={() => setAgent(agent.id)} className="w-full text-left px-4 py-3 hover:bg-blue-50 transition-colors flex items-center gap-3 border-b border-slate-50 last:border-0">
-                         <div className={`w-8 h-8 rounded flex items-center justify-center ${agent.iconColor}`}>
-                            {agent.id === 'gxx' ? <Radar className="w-4 h-4" /> : <LayoutGrid className="w-4 h-4" />}
-                         </div>
-                         <div>
-                            <div className="font-medium text-sm text-slate-800">{agent.name}</div>
-                            <div className="text-[10px] text-slate-500">{agent.description}</div>
-                         </div>
-                      </button>
-                   ))}
-                </div>
              </div>
           </div>
-          <div className="flex items-center gap-1">
-            <SessionListDropdown />
-            <Button
-              variant="ghost"
-              size="icon"
-              className="text-slate-400 hover:text-slate-600"
-              onClick={() => {
-                // 1. Clear messages (reset to welcome)
-                setMessages(
-                  config.welcomeMessages.map((m, i) => ({
-                    id: `welcome-${config.id}-${i}`,
-                    role: 'assistant',
-                    parts: [{ type: 'text', text: m }],
-                  }))
-                );
-                // 2. Reset Canvas
-                resetCanvas(currentAgentId);
-                // 3. New Session ID
-                setSessionId(uuidv4());
-              }}
-              title="新建会话"
-            >
-              <RotateCcw className="w-5 h-5" />
-            </Button>
-          </div>
+          {sessionRestoreInProgress ? (
+             <p className="text-xs text-amber-600 flex items-center gap-1.5 mt-0.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" />
+                正在加载会话...
+             </p>
+          ) : (
+             <p className="text-xs text-slate-500 mt-0.5 truncate" title={sessionTitle}>
+                当前会话：{sessionTitle}
+             </p>
+          )}
        </div>
 
        {/* Messages */}
@@ -484,7 +492,39 @@ export function ChatInterface() {
                 </Button>
              </div>
           )}
-          {messages.map((m: any) => {
+          {sessionRestoreInProgress ? (
+             <div className="space-y-8 animate-pulse px-2 mt-4">
+                {/* Skeleton Loader */}
+                <div className="flex gap-3 max-w-[85%]">
+                   <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0"></div>
+                   <div className="space-y-2 w-full">
+                      <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                      <div className="h-4 bg-slate-200 rounded w-1/2"></div>
+                   </div>
+                </div>
+                <div className="flex gap-3 max-w-[85%] ml-auto flex-row-reverse">
+                   <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0"></div>
+                   <div className="h-10 bg-slate-200 rounded-2xl w-1/2"></div>
+                </div>
+                <div className="flex gap-3 max-w-[85%]">
+                   <div className="w-8 h-8 rounded-full bg-slate-200 shrink-0"></div>
+                   <div className="space-y-2 w-full">
+                      <div className="h-4 bg-slate-200 rounded w-5/6"></div>
+                      <div className="h-4 bg-slate-200 rounded w-2/3"></div>
+                      <div className="h-4 bg-slate-200 rounded w-1/2"></div>
+                   </div>
+                </div>
+             </div>
+          ) : (
+            (() => {
+            const seenIds = new Set<string>();
+            const messagesToRender = messages.filter((m: any) => {
+              const id = m?.id ?? '';
+              if (seenIds.has(id)) return false;
+              seenIds.add(id);
+              return true;
+            });
+            return messagesToRender.map((m: any) => {
              // Support both `content` (older shape) and `parts` (UIMessage shape); include text + reasoning
              let textContent =
                m.content ??
@@ -494,13 +534,21 @@ export function ChatInterface() {
                      .map((p: any) => p.text)
                      .join('')
                  : '');
-             // When assistant only sent tool calls (e.g. updateCanvas) with no text, provide a fallback message
-             const hasToolParts = Array.isArray(m.parts) && m.parts.some((p: any) => p.type?.startsWith?.('tool-') || p.type === 'dynamic-tool');
+             // When assistant only sent tool calls (e.g. updateCanvas) with no text, show fallback so we never "have no reply"
+             const hasToolParts = Array.isArray(m.parts) && m.parts.some((p: any) =>
+               p.type?.startsWith?.('tool-') ||
+               p.type === 'dynamic-tool' ||
+               p.type === 'tool-invocation' ||
+               p.type === 'tool-call' ||
+               p.type === 'tool-result' ||
+               p.toolInvocation != null ||
+               p.toolName != null
+             );
              if (m.role === 'assistant' && !textContent?.trim() && hasToolParts) {
                textContent = "（已根据您的输入更新画布，请继续...）";
              }
 
-             // 不渲染无内容的“空气泡”（用户或助手消息内容为空时）
+             // 不渲染无内容的“空气泡”（用户或助手消息内容为空时；assistant 仅有工具调用时已在上方设为 fallback）
              if (!textContent?.trim()) {
                return null;
              }
@@ -522,21 +570,33 @@ export function ChatInterface() {
                            </li>
                          );
                        }
+                       // Use div with role="button" to avoid nested <button> when markdown has nested lists
                        return (
                          <li className="!list-none !my-1 !p-0 !bg-transparent !border-0 !rounded-none">
-                           <button
-                             type="button"
+                           <div
+                             role="button"
+                             tabIndex={0}
                              onClick={(e) => {
-                               const btnText = e.currentTarget.textContent?.trim();
+                               const btnText = (e.currentTarget as HTMLElement).textContent?.trim();
                                if (btnText) {
                                  setInput(btnText);
                                  inputRef.current?.focus();
                                }
                              }}
+                             onKeyDown={(e) => {
+                               if (e.key === 'Enter' || e.key === ' ') {
+                                 e.preventDefault();
+                                 const btnText = (e.currentTarget as HTMLElement).textContent?.trim();
+                                 if (btnText) {
+                                   setInput(btnText);
+                                   inputRef.current?.focus();
+                                 }
+                               }
+                             }}
                              className="w-full text-left py-2.5 px-3 rounded-xl bg-amber-50/70 border border-amber-100 cursor-pointer hover:bg-amber-100/80 transition-colors font-medium text-slate-700"
                            >
                              {children}
-                           </button>
+                           </div>
                          </li>
                        );
                      },
@@ -553,7 +613,9 @@ export function ChatInterface() {
                    {/* Hide tool invocations in UI, they update the canvas */}
                 </div>
              </div>
-          )})}
+          );
+          });
+          })() )}
           {/* Suggested / fallback replies inside scroll area - avoid blocking conversation */}
           {(showSuggestedReplies || showFallbackReplies) && (
              <div className="pt-2 space-y-2">
@@ -564,8 +626,9 @@ export function ChatInterface() {
                          <button
                            key={i}
                            type="button"
-                           onClick={() => handleSend(reply)}
-                           className="whitespace-nowrap px-4 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm rounded-xl border border-blue-200 hover:border-blue-300 transition-colors shadow-sm font-medium"
+                           disabled={isLoading || isSending}
+                           onClick={() => { if (isLoading || isSending) return; handleSend(reply); }}
+                           className="whitespace-nowrap px-4 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-sm rounded-xl border border-blue-200 hover:border-blue-300 transition-colors shadow-sm font-medium disabled:opacity-50 disabled:pointer-events-none"
                          >
                            {reply}
                          </button>
@@ -588,8 +651,9 @@ export function ChatInterface() {
                                 <div className="flex items-center gap-2">
                                    <button
                                       type="button"
-                                      onClick={() => handleSend(reply)}
-                                      className="flex-1 text-left px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-xl border border-slate-200 hover:border-slate-300 transition-colors shadow-sm font-medium"
+                                      disabled={isLoading || isSending}
+                                      onClick={() => { if (isLoading || isSending) return; handleSend(reply); }}
+                                      className="flex-1 text-left px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm rounded-xl border border-slate-200 hover:border-slate-300 transition-colors shadow-sm font-medium disabled:opacity-50 disabled:pointer-events-none"
                                    >
                                       {reply}
                                    </button>
@@ -618,8 +682,9 @@ export function ChatInterface() {
                                          <button
                                             key={j}
                                             type="button"
-                                            onClick={() => handleSend(prompt)}
-                                            className="w-full text-left px-3 py-2 bg-blue-50/50 hover:bg-blue-50 text-slate-600 text-xs rounded-lg border border-blue-100 hover:border-blue-200 transition-colors"
+                                            disabled={isLoading || isSending}
+                                            onClick={() => { if (isLoading || isSending) return; handleSend(prompt); }}
+                                            className="w-full text-left px-3 py-2 bg-blue-50/50 hover:bg-blue-50 text-slate-600 text-xs rounded-lg border border-blue-100 hover:border-blue-200 transition-colors disabled:opacity-50 disabled:pointer-events-none"
                                          >
                                             <ChevronRight className="w-3 h-3 inline mr-1.5 text-blue-400" />
                                             {prompt}
@@ -660,13 +725,14 @@ export function ChatInterface() {
                咨询已完成，可继续追问或导出报告
              </div>
           )}
-          {/* Step guide - persistent for gxx until consultation complete */}
+          {/* Step guide - persistent for gxx until consultation complete. Only show ✓ when this session has user messages and canvas is filled (avoid showing persisted state as "done" before any conversation). */}
           {currentAgentId === 'gxx' && !isConsultationComplete && (
              <div className="mb-3">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">推荐路径</p>
                 <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
                    {GXX_PERSISTENT_STEPS.map((s) => {
-                     const done = s.isDone(canvasData?.gxx);
+                     const hasUserMessage = messages.some((m: any) => m.role === 'user');
+                     const done = hasUserMessage && s.isDone(canvasData?.gxx);
                      return (
                        <button
                          key={s.key}
@@ -692,10 +758,12 @@ export function ChatInterface() {
           {!messages.some((m: { role: string }) => m.role === 'user') && (
              <div className="flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-1">
                 {quickReplies.map((reply, i) => (
-                   <button 
-                     key={i} 
-                     onClick={() => handleSend(reply)} 
-                     className="whitespace-nowrap px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs rounded-full border border-blue-200 transition-colors shadow-sm font-medium"
+                   <button
+                     key={i}
+                     type="button"
+                     disabled={isLoading || isSending}
+                     onClick={() => { if (isLoading || isSending) return; handleSend(reply); }}
+                     className="whitespace-nowrap px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs rounded-full border border-blue-200 transition-colors shadow-sm font-medium disabled:opacity-50 disabled:pointer-events-none"
                    >
                       {reply}
                    </button>
