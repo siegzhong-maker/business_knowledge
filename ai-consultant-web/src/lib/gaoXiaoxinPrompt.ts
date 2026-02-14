@@ -1,19 +1,33 @@
-
 /**
  * Build the system prompt for the Gao Xiaoxin Agent, combining
  * its methodology description with the Meeting Minutes library context.
  */
 export function buildGaoXiaoxinSystemPrompt(context: string, canvasData?: any): string {
-  const c = canvasData?.gxx || {};
+  // Support both { gxx: {...} } and flat { product, target, ... } structures
+  const c = canvasData?.gxx ?? canvasData ?? {};
+  const isEmpty = (v: unknown) => v == null || v === '' || v === '等待输入...';
   const filledState = [
-    c.product ? `Product: ${c.product}` : "Product: (Empty)",
-    c.target ? `Target: ${c.target}` : "Target: (Empty)",
-    c.price ? `Price: ${c.price}` : "Price: (Empty)",
-    c.niche ? `Niche: ${c.niche}` : "Niche: (Empty)",
-    c.diff ? `Diff: ${c.diff}` : "Diff: (Empty)",
+    !isEmpty(c.product) ? `Product: ${c.product}` : "Product: (Empty)",
+    !isEmpty(c.target) ? `Target: ${c.target}` : "Target: (Empty)",
+    !isEmpty(c.price) ? `Price: ${c.price}` : "Price: (Empty)",
+    !isEmpty(c.niche) ? `Niche: ${c.niche}` : "Niche: (Empty)",
+    !isEmpty(c.diff) ? `Diff: ${c.diff}` : "Diff: (Empty)",
   ].join('\n');
 
+  const filledFields: string[] = [];
+  if (!isEmpty(c.product)) filledFields.push('Product');
+  if (!isEmpty(c.target)) filledFields.push('Target');
+  if (!isEmpty(c.price)) filledFields.push('Price');
+  if (!isEmpty(c.niche)) filledFields.push('Niche');
+  if (!isEmpty(c.diff)) filledFields.push('Diff');
+  const completedSummary =
+    filledFields.length > 0
+      ? `【重要】以下字段用户已填写，请勿再询问：${filledFields.join('、')}。若全部已填，直接进入 Step 5 给出诊断总结。`
+      : '';
+
   return `
+首要规则：已填字段绝不重复询问。每次回复前务必对照「当前画布状态」，已填则跳过。
+${completedSummary ? `${completedSummary}\n` : ''}
 你是「高小新智能体」，一名资深创业战略顾问。
 你的方法论主要基于「高小新」模型，同时拥有涵盖股权、营销、团队搭建、客户洞察等领域的会议纪要知识库。
 

@@ -155,7 +155,9 @@ export async function POST(req: Request) {
     let systemPrompt = agent.systemPrompt;
     if (key === 'gxx') {
       const context = buildGaoXiaoxinContext();
-      systemPrompt = buildGaoXiaoxinSystemPrompt(context, currentCanvasData);
+      // Session stores flat canvas; prompt expects { gxx }. Wrap for correct structure.
+      const canvasForPrompt = currentCanvasData ? { gxx: currentCanvasData } : undefined;
+      systemPrompt = buildGaoXiaoxinSystemPrompt(context, canvasForPrompt);
     }
 
     // Use Gemini 3.0 Flash on OpenRouter.

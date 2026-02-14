@@ -2,8 +2,9 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAgentStore } from '@/lib/store';
+import { agents } from '@/features/agents/config';
 import { ExportButton } from '@/features/export/ExportToolbar';
-import { Target, Radar as RadarIcon, Lightbulb, LayoutDashboard, ArrowRight } from 'lucide-react';
+import { Target, Radar as RadarIcon, Lightbulb, LayoutDashboard, ArrowRight, RotateCcw, Sparkles } from 'lucide-react';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 
 const EMPTY_PLACEHOLDER = '等待输入...';
@@ -12,11 +13,11 @@ function isFilled(v: unknown): boolean {
 }
 
 const FIELD_GUIDANCE: Record<string, string> = {
-  product: '在左侧对话中描述产品，我会帮你提炼',
-  target: '在对话中说明目标客户，我会帮你提炼',
-  price: '完成产品与客群描述后将评估利润天花板',
-  niche: '在对话中说明破局切入点，我会帮你提炼',
-  diff: '在对话中说明核心差异化，我会帮你提炼',
+  product: '在左侧对话中描述产品，我会帮你提炼，或点击此处直接填写',
+  target: '在对话中说明目标客户，我会帮你提炼，或点击此处直接填写',
+  price: '完成产品与客群描述后将评估利润天花板，或点击此处直接填写',
+  niche: '在对话中说明破局切入点，我会帮你提炼，或点击此处直接填写',
+  diff: '在对话中说明核心差异化，我会帮你提炼，或点击此处直接填写',
 };
 
 function getNextStepSuggestion(data: { product?: string; target?: string; price?: string; niche?: string; diff?: string }): { label: string; example: string } | null {
@@ -39,6 +40,8 @@ const CANVAS_PERSIST_DEBOUNCE_MS = 400;
 export function GaoXiaoxinView() {
   const data = useAgentStore((state) => state.canvasData.gxx);
   const updateCanvasData = useAgentStore((state) => state.updateCanvasData);
+  const resetCanvas = useAgentStore((state) => state.resetCanvas);
+  const setPendingExtractMessage = useAgentStore((state) => state.setPendingExtractMessage);
   const sessionId = useAgentStore((state) => state.sessionId);
   const anonymousId = useAgentStore((state) => state.anonymousId);
   const chatLoading = useAgentStore((state) => state.chatLoading);
@@ -80,6 +83,26 @@ export function GaoXiaoxinView() {
     },
     [updateCanvasData, persistCanvasToDb]
   );
+
+  const handleResetCanvas = useCallback(() => {
+    if (!confirm('确定要重置画布吗？所有已填写的诊断内容将被清空。')) return;
+    const initialState = agents.gxx.initialState as Record<string, unknown>;
+    resetCanvas('gxx');
+    if (sessionId && anonymousId) {
+      fetch(
+        `/api/sessions/${encodeURIComponent(sessionId)}/canvas?anonymousId=${encodeURIComponent(anonymousId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: initialState }),
+        }
+      ).catch((e) => console.warn('Failed to persist canvas reset:', e));
+    }
+  }, [resetCanvas, sessionId, anonymousId]);
+
+  const handleExtractFromChat = useCallback(() => {
+    setPendingExtractMessage('请根据当前对话历史重新提取并更新画布所有字段（product、target、price、niche、diff、scores、summary、actionList）。');
+  }, [setPendingExtractMessage]);
 
   // Flush pending changes on unmount or session change
   useEffect(() => {
@@ -155,18 +178,40 @@ export function GaoXiaoxinView() {
           <p className="text-[#64748b] text-sm mt-1">基于高小新战略模型实时生成</p>
           <p className="text-xs text-[#475569] mt-1">{progressLabel}</p>
         </div>
-        <div data-pdf-hide className="flex items-center gap-2">
+        <div data-pdf-hide className="flex flex-col items-end gap-1">
+          <p className="text-[10px] text-[#94a3b8] max-w-[200px] text-right">画布随 AI 回复自动更新，您也可点击字段直接修改</p>
+          <div className="flex items-center gap-2 flex-wrap">
             <span className={`px-3 py-1 border rounded-full text-xs font-medium flex items-center gap-1 transition-colors ${chatLoading ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-green-50 text-green-600 border-green-200'}`}>
-                <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${chatLoading ? 'bg-amber-500' : 'bg-green-500'}`}></span>
-                {chatLoading ? '思考并提取中...' : '跟随会话中...'}
+              <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${chatLoading ? 'bg-amber-500' : 'bg-green-500'}`}></span>
+              {chatLoading ? '思考并提取中...' : '跟随会话中 · 画布会随对话自动更新'}
             </span>
+            <button
+              type="button"
+              onClick={handleExtractFromChat}
+              disabled={chatLoading}
+              title="根据对话历史重新提取画布"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-xs font-medium border border-blue-200 disabled:opacity-50 disabled:pointer-events-none"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              从对话重新提取
+            </button>
+            <button
+              type="button"
+              onClick={handleResetCanvas}
+              title="清空画布"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors text-xs font-medium border border-slate-200"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              重置画布
+            </button>
             <ExportButton />
+          </div>
         </div>
       </div>
 
       {isColdStart && (
         <div className="z-10 px-4 py-3 rounded-xl bg-blue-50 border border-blue-100 text-sm text-[#1e293b]">
-          请先在左侧按 <strong>① 产品</strong> → <strong>② 客群</strong> → <strong>③ 差异化</strong> 的顺序与顾问对话，此处将实时生成诊断与评分。
+          请先在左侧按 <strong>① 产品</strong> → <strong>② 客群</strong> → <strong>③ 差异化</strong> 的顺序与顾问对话，此处将实时生成诊断与评分。画布会随对话自动更新；空字段可点击直接编辑。
         </div>
       )}
 
@@ -179,7 +224,7 @@ export function GaoXiaoxinView() {
           <div className="grid grid-cols-2 gap-3">
              <FieldBox label="产品/服务形态" value={data.product} fieldKey="product" colSpan={2} flash={flashingField === 'product'} editable onSave={(v) => handleCanvasEdit({ product: v || undefined })} />
              <FieldBox label="目标客群" value={data.target} fieldKey="target" flash={flashingField === 'target'} editable onSave={(v) => handleCanvasEdit({ target: v || undefined })} />
-             <FieldBox label="利润天花板 (高)" value={data.price} fieldKey="price" highlight flash={flashingField === 'price'} />
+             <FieldBox label="利润天花板 (高)" value={data.price} fieldKey="price" highlight flash={flashingField === 'price'} editable onSave={(v) => handleCanvasEdit({ price: v || undefined })} />
              <FieldBox label="破局切入点 (小)" value={data.niche} fieldKey="niche" colSpan={2} highlight flash={flashingField === 'niche'} editable onSave={(v) => handleCanvasEdit({ niche: v || undefined })} />
              <FieldBox label="核心差异化 (新)" value={data.diff} fieldKey="diff" colSpan={2} highlight flash={flashingField === 'diff'} editable onSave={(v) => handleCanvasEdit({ diff: v || undefined })} />
           </div>
@@ -340,6 +385,7 @@ function FieldBox({
     <div
       className={`p-3.5 rounded-xl border transition-all duration-300 ${colSpan === 2 ? 'col-span-2' : ''} ${filled ? 'bg-amber-50 border-amber-100' : 'bg-slate-50 border-slate-100'} ${editable ? 'cursor-text' : ''} ${flash ? 'update-flash' : ''}`}
       onClick={editable && !editing ? startEditing : undefined}
+      title={editable && !editing ? '点击编辑' : undefined}
     >
       <label className={`text-[10px] font-bold uppercase block mb-1 ${highlight ? 'text-[#2563eb]' : 'text-[#334155]'}`}>
         {label}

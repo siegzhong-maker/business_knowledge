@@ -122,7 +122,7 @@ function isPlaceholderLikeListItem(text: string): boolean {
 }
 
 export function ChatInterface() {
-  const { currentAgentId, updateCanvasData, canvasData, sessionId, setSessionId, anonymousId, setAnonymousId, setChatLoading, sessionRestoreInProgress, setSessionRestoreInProgress, invalidateSessionList } = useAgentStore();
+  const { currentAgentId, updateCanvasData, canvasData, sessionId, setSessionId, anonymousId, setAnonymousId, setChatLoading, sessionRestoreInProgress, setSessionRestoreInProgress, invalidateSessionList, pendingExtractMessage, setPendingExtractMessage } = useAgentStore();
   const config = agents[currentAgentId];
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -282,6 +282,15 @@ export function ChatInterface() {
       setIsSending(false);
     }
   };
+
+  // When canvas requests "从对话重新提取", send the extract prompt
+  useEffect(() => {
+    if (!pendingExtractMessage?.trim()) return;
+    const msg = pendingExtractMessage;
+    setPendingExtractMessage(null);
+    void handleSend(msg);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- handleSend is intentionally omitted to avoid re-running on its deps
+  }, [pendingExtractMessage, setPendingExtractMessage]);
 
   const quickReplies = [
     "我想做面向大企业的员工心理健康 AI 服务",

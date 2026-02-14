@@ -34,6 +34,9 @@ export interface AgentState {
   /** Ephemeral: bump to trigger session list refetch (e.g. after send or delete). */
   sessionListVersion: number;
   invalidateSessionList: () => void;
+  /** Trigger chat to send a message (e.g. "从对话重新提取"). Canvas sets this, ChatInterface consumes. */
+  pendingExtractMessage: string | null;
+  setPendingExtractMessage: (msg: string | null) => void;
 }
 
 export const useAgentStore = create<AgentState>()(
@@ -83,6 +86,9 @@ export const useAgentStore = create<AgentState>()(
 
       sessionListVersion: 0,
       invalidateSessionList: () => set({ sessionListVersion: Date.now() }),
+
+      pendingExtractMessage: null,
+      setPendingExtractMessage: (msg) => set({ pendingExtractMessage: msg }),
     }),
     {
       name: 'ai-consultant-storage', // name of the item in the storage (must be unique)
