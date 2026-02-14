@@ -162,6 +162,7 @@ export async function POST(req: Request) {
     const result = streamText({
       model: openrouter.chat('google/gemini-3-flash-preview'),
       system: systemPrompt,
+      temperature: 0.3, // Enforce stricter adherence to system prompt instructions
       // Safely convert UI messages coming from `useChat` into model messages
       messages: messages.length > 0 ? await convertToModelMessages(messages) : [],
       tools: {

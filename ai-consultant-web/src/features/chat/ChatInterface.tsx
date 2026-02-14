@@ -494,11 +494,12 @@ export function ChatInterface() {
                      .map((p: any) => p.text)
                      .join('')
                  : '');
-             // When assistant only sent tool calls (e.g. updateCanvas) with no text, do NOT show the bubble at all
+             // When assistant only sent tool calls (e.g. updateCanvas) with no text, provide a fallback message
              const hasToolParts = Array.isArray(m.parts) && m.parts.some((p: any) => p.type?.startsWith?.('tool-') || p.type === 'dynamic-tool');
              if (m.role === 'assistant' && !textContent?.trim() && hasToolParts) {
-               return null;
+               textContent = "（已根据您的输入更新画布，请继续...）";
              }
+
              // 不渲染无内容的“空气泡”（用户或助手消息内容为空时）
              if (!textContent?.trim()) {
                return null;
