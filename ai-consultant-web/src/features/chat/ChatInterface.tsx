@@ -15,8 +15,10 @@ import { v4 as uuidv4 } from 'uuid';
 const PLACEHOLDER_BY_STEP: Record<number, string> = {
   0: "描述一下产品形态、准备卖给谁…",
   1: "你的目标客户是谁？可简短说…",
-  2: "破局点或核心差异化是什么？",
-  3: "补充或修改任意一项，或直接问顾问…"
+  2: "利润天花板或客单价大概怎样？",
+  3: "破局切入点或细分人群是？",
+  4: "核心差异化是什么？",
+  5: "补充或修改任意一项，或直接问顾问…"
 };
 
 function getPlaceholderForGxx(canvasData: any): string {
@@ -24,24 +26,39 @@ function getPlaceholderForGxx(canvasData: any): string {
   const g = canvasData.gxx;
   const empty = (v: unknown) => v == null || v === "" || v === "等待输入...";
   const filled = [g.product, g.target, g.price, g.niche, g.diff].filter(v => !empty(v)).length;
-  const step = Math.min(filled, 3);
+  const step = Math.min(filled, 5);
   return PLACEHOLDER_BY_STEP[step];
 }
 
 const GXX_PERSISTENT_STEPS = [
-  { key: 'productTarget', label: '① 产品+客群', prefill: '我的产品是________，主要面向________。', isDone: (g: any) => {
+  { key: 'product', label: '① 产品', prefill: '我的产品/服务是________。', isDone: (g: any) => {
     const e = (v: unknown) => v == null || v === '' || v === '等待输入...';
-    return !e(g?.product) && !e(g?.target);
+    return !e(g?.product);
   }},
-  { key: 'niche', label: '② 破局点', prefill: '我的破局切入点是________。', isDone: (g: any) => {
+  { key: 'target', label: '② 客群', prefill: '我的目标客群是________。', isDone: (g: any) => {
+    const e = (v: unknown) => v == null || v === '' || v === '等待输入...';
+    return !e(g?.target);
+  }},
+  { key: 'price', label: '③ 利润天花板', prefill: '客单价约________，利润天花板/频次________。', isDone: (g: any) => {
+    const e = (v: unknown) => v == null || v === '' || v === '等待输入...';
+    return !e(g?.price);
+  }},
+  { key: 'niche', label: '④ 破局点', prefill: '我的破局切入点是________。', isDone: (g: any) => {
     const e = (v: unknown) => v == null || v === '' || v === '等待输入...';
     return !e(g?.niche);
   }},
-  { key: 'diff', label: '③ 差异化', prefill: '我的核心差异化是________。', isDone: (g: any) => {
+  { key: 'diff', label: '⑤ 差异化', prefill: '我的核心差异化是________。', isDone: (g: any) => {
     const e = (v: unknown) => v == null || v === '' || v === '等待输入...';
     return !e(g?.diff);
   }},
 ];
+
+function getGxxFilledCount(canvasData: any): number {
+  if (!canvasData?.gxx) return 0;
+  const g = canvasData.gxx;
+  const empty = (v: unknown) => v == null || v === '' || v === '等待输入...';
+  return [g.product, g.target, g.price, g.niche, g.diff].filter(v => !empty(v)).length;
+}
 
 function getFallbackSuggestedReplies(canvasData: any): string[] {
   if (!canvasData?.gxx) return [];
@@ -122,7 +139,7 @@ function isPlaceholderLikeListItem(text: string): boolean {
 }
 
 export function ChatInterface() {
-  const { currentAgentId, updateCanvasData, canvasData, sessionId, setSessionId, anonymousId, setAnonymousId, setChatLoading, sessionRestoreInProgress, setSessionRestoreInProgress, invalidateSessionList, pendingExtractMessage, setPendingExtractMessage } = useAgentStore();
+  const { currentAgentId, updateCanvasData, canvasData, sessionId, setSessionId, anonymousId, setAnonymousId, setChatLoading, sessionRestoreInProgress, setSessionRestoreInProgress, invalidateSessionList, pendingExtractMessage, setPendingExtractMessage, setSessionTitle } = useAgentStore();
   const config = agents[currentAgentId];
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -133,6 +150,15 @@ export function ChatInterface() {
 
   const [error, setError] = useState<Error | undefined>(undefined);
   const lastAutoExtractMsgIdRef = useRef<string | null>(null);
+  const [canvasUpdateToastFields, setCanvasUpdateToastFields] = useState<string[]>([]);
+
+  const GXX_FIELD_LABELS: Record<string, string> = {
+    product: '产品/服务',
+    target: '目标客群',
+    price: '利润天花板',
+    niche: '破局切入点',
+    diff: '核心差异化',
+  };
 
   // Initialize session ID and anonymous identity (for session list ownership)
   useEffect(() => {
@@ -145,7 +171,7 @@ export function ChatInterface() {
       api: '/api/chat',
     }),
     // Seed chat with welcome messages in UIMessage shape (parts-based)
-    messages: config.welcomeMessages.map((m, i) => ({
+    messages: config.welcomeMessages.map((m: string, i: number) => ({
       id: `welcome-${config.id}-${i}`,
       role: 'assistant',
       parts: [{ type: 'text', text: m }],
@@ -175,7 +201,7 @@ export function ChatInterface() {
             const agentConfig = agents[currentAgentId as keyof typeof agents];
             const initialState = agentConfig?.initialState ?? {};
             setMessages(
-              config.welcomeMessages.map((m, i) => ({
+              config.welcomeMessages.map((m: string, i: number) => ({
                 id: `welcome-${config.id}-${i}`,
                 role: 'assistant',
                 parts: [{ type: 'text' as const, text: m }],
@@ -204,7 +230,7 @@ export function ChatInterface() {
           setMessages(restoredMessages);
         } else {
           setMessages(
-            config.welcomeMessages.map((m, i) => ({
+            config.welcomeMessages.map((m: string, i: number) => ({
               id: `welcome-${config.id}-${i}`,
               role: 'assistant',
               parts: [{ type: 'text' as const, text: m }],
@@ -337,6 +363,11 @@ export function ChatInterface() {
             ? firstUserMessage.parts.map((p) => p.text ?? '').join('')
             : ''
         ).trim().slice(0, 50) || '未命名会话';
+
+  useEffect(() => {
+    setSessionTitle(sessionTitle === '新会话' ? null : sessionTitle);
+  }, [sessionTitle, setSessionTitle]);
+
   const lastMessage = messages[messages.length - 1];
   const lastIsAssistant = (lastMessage as any)?.role === "assistant";
   const lastUserMessage = [...messages].reverse().find((m: any) => m.role === 'user') as { content?: string; parts?: { text?: string }[] } | undefined;
@@ -368,13 +399,14 @@ export function ChatInterface() {
     !isLoading && lastIsAssistant && suggestedReplies.length === 0 && fallbackReplies.length > 0 && !isConsultationComplete;
   const chatPlaceholder =
     isConsultationComplete
-      ? "可继续追问、复诊更新诊断或导出报告..."
+      ? "输入追问，或在右侧画布复诊更新诊断"
       : currentAgentId === "gxx"
         ? getPlaceholderForGxx(canvasData)
         : "直接打字回复...";
 
   // Watch for tool results to update canvas (AI SDK 6: parts with output; legacy: toolInvocations with result)
   // Traverse all assistant messages so we pick up tool results from any message (streaming may split them).
+  const canvasFieldKeys = ['product', 'target', 'price', 'niche', 'diff'];
   useEffect(() => {
     type PartLike = {
       type: string;
@@ -386,8 +418,17 @@ export function ChatInterface() {
       args?: unknown;
     };
 
-    const safeUpdateCanvas = (agentId: string, data: any) => {
+    const collectedFields: string[] = [];
+
+    const safeUpdateCanvas = (agentId: string, data: any, collectFields = false) => {
       if (!data || typeof data !== 'object') return;
+      if (collectFields) {
+        canvasFieldKeys.forEach((k) => {
+          if (k in data && data[k] != null && data[k] !== '' && data[k] !== '等待输入...') {
+            collectedFields.push(k);
+          }
+        });
+      }
 
       const normalizedData = { ...data };
       if (normalizedData.scores && typeof normalizedData.scores === 'object') {
@@ -414,7 +455,7 @@ export function ChatInterface() {
       updateCanvasData(agentId, normalizedData);
     };
 
-    const applyToolFromPart = (p: PartLike) => {
+    const applyToolFromPart = (p: PartLike, collect: boolean) => {
       const toolResult = (x: PartLike): unknown => {
         if (x.toolInvocation != null) {
           const r = x.toolInvocation.result ?? x.toolInvocation.output;
@@ -431,7 +472,7 @@ export function ChatInterface() {
         if (name === 'updatecanvas') {
           const result = p.toolInvocation.result ?? p.toolInvocation.output ?? p.toolInvocation.args;
           if (result != null && (p.toolInvocation.state === 'result' || p.toolInvocation.state === 'output-available' || result !== undefined)) {
-            safeUpdateCanvas(currentAgentId, result);
+            safeUpdateCanvas(currentAgentId, result, collect);
           }
         }
         return;
@@ -440,30 +481,45 @@ export function ChatInterface() {
         name = (p.toolName ?? p.type?.replace(/^tool-/, '') ?? '').toLowerCase();
         if (name === 'updatecanvas') {
           const out = toolResult(p);
-          if (out != null) safeUpdateCanvas(currentAgentId, out);
+          if (out != null) safeUpdateCanvas(currentAgentId, out, collect);
         }
       }
     };
 
-    const applyToolInvocations = (msg: { toolInvocations?: Array<{ toolName?: string; result?: unknown; args?: unknown }> }) => {
+    const applyToolInvocations = (msg: { toolInvocations?: Array<{ toolName?: string; result?: unknown; args?: unknown }> }, collect: boolean) => {
       const list = (msg as { toolInvocations?: unknown }).toolInvocations;
       if (!Array.isArray(list)) return;
       list.forEach((tool: any) => {
         if (tool?.toolName?.toLowerCase() !== 'updatecanvas') return;
-        if (tool.result != null) safeUpdateCanvas(currentAgentId, tool.result);
-        else if (tool.args != null) safeUpdateCanvas(currentAgentId, tool.args);
+        if (tool.result != null) safeUpdateCanvas(currentAgentId, tool.result, collect);
+        else if (tool.args != null) safeUpdateCanvas(currentAgentId, tool.args, collect);
       });
     };
 
     for (let i = 0; i < messages.length; i++) {
       const msg = messages[i];
       if (!msg || msg.role !== 'assistant') continue;
+      const isLastMessage = i === messages.length - 1;
+      if (isLastMessage) collectedFields.length = 0;
 
       const parts: PartLike[] = Array.isArray(msg.parts) ? (msg.parts as PartLike[]) : [];
-      for (const p of parts) applyToolFromPart(p);
-      applyToolInvocations(msg as { toolInvocations?: Array<{ toolName?: string; result?: unknown; args?: unknown }> });
+      for (const p of parts) applyToolFromPart(p, isLastMessage);
+      applyToolInvocations(msg as { toolInvocations?: Array<{ toolName?: string; result?: unknown; args?: unknown }> }, isLastMessage);
+    }
+
+    const lastMsg = messages[messages.length - 1];
+    if (collectedFields.length > 0 && lastMsg && (lastMsg as { role?: string }).role === 'assistant' && currentAgentId === 'gxx') {
+      const unique = [...new Set(collectedFields)];
+      setCanvasUpdateToastFields(unique);
     }
   }, [messages, currentAgentId, updateCanvasData]);
+
+  // Clear canvas update toast after 3s
+  useEffect(() => {
+    if (canvasUpdateToastFields.length === 0) return;
+    const t = setTimeout(() => setCanvasUpdateToastFields([]), 3000);
+    return () => clearTimeout(t);
+  }, [canvasUpdateToastFields]);
 
   // Scroll to bottom on new message
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -756,44 +812,36 @@ export function ChatInterface() {
 
        {/* Input */}
        <div className="flex-none p-4 bg-white border-t border-slate-100 w-full z-20">
-          {/* Consultation complete banner */}
-          {isConsultationComplete && (
-             <div className="mb-3 px-4 py-2.5 rounded-xl bg-green-50 border border-green-100 text-sm text-green-700">
-               咨询已完成，可继续追问或导出报告
-             </div>
+          {canvasUpdateToastFields.length > 0 && (
+            <p className="mb-2 text-xs text-slate-500">
+              已更新：{canvasUpdateToastFields.map((k) => GXX_FIELD_LABELS[k] ?? k).join('、')}
+            </p>
           )}
-          {/* Step guide - persistent for gxx until consultation complete. Only show ✓ when this session has user messages and canvas is filled (avoid showing persisted state as "done" before any conversation). */}
-          {currentAgentId === 'gxx' && !isConsultationComplete && (
-             <div className="mb-3">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">推荐路径</p>
-                <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1">
-                   {GXX_PERSISTENT_STEPS.map((s) => {
-                     const hasUserMessage = messages.some((m: any) => m.role === 'user');
-                     const done = hasUserMessage && s.isDone(canvasData?.gxx);
-                     return (
-                       <button
-                         key={s.key}
-                         type="button"
-                         onClick={() => {
-                           setInput(s.prefill);
-                           inputRef.current?.focus();
-                         }}
-                         className={`flex-shrink-0 px-3 py-2 text-xs rounded-lg border transition-colors whitespace-nowrap ${
-                           done
-                             ? 'bg-green-50 text-green-700 border-green-200'
-                             : 'bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border-slate-200 hover:border-blue-200'
-                         }`}
-                       >
-                         {done ? `${s.label} ✓` : s.label}
-                       </button>
-                     );
-                   })}
-                </div>
-             </div>
-          )}
+          {/* Light hint - single next step suggestion */}
+          {currentAgentId === 'gxx' && !isConsultationComplete && (() => {
+            const filled = getGxxFilledCount(canvasData);
+            const nextStep = GXX_PERSISTENT_STEPS.find((s) => !s.isDone(canvasData?.gxx));
+            if (!nextStep || filled >= 5) return null;
+            return (
+              <p className="mb-2 text-xs text-slate-500">
+                画布 {filled}/5 · 可以说说{nextStep.label.replace(/^[①②③④⑤]\s*/, '')}
+                <button
+                  type="button"
+                  onClick={() => { setInput(nextStep.prefill); inputRef.current?.focus(); }}
+                  className="ml-1 text-blue-600 hover:underline"
+                >
+                  填空
+                </button>
+              </p>
+            );
+          })()}
           {/* Quick Replies - Only show when no USER messages exist yet */}
           {!messages.some((m: { role: string }) => m.role === 'user') && (
-             <div className="flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-1">
+             <div className="mb-2">
+               {currentAgentId === 'gxx' && (
+                 <p className="text-[10px] text-slate-500 mb-2">从零验证新项目 · 或基于现有业务拓展新渠道/新品类，均可</p>
+               )}
+               <div className="flex gap-2 overflow-x-auto pb-3 no-scrollbar mb-1">
                 {quickReplies.map((reply, i) => (
                    <button
                      key={i}
@@ -805,6 +853,7 @@ export function ChatInterface() {
                       {reply}
                    </button>
                 ))}
+               </div>
              </div>
           )}
 

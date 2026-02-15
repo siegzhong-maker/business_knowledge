@@ -37,6 +37,9 @@ export interface AgentState {
   /** Trigger chat to send a message (e.g. "从对话重新提取"). Canvas sets this, ChatInterface consumes. */
   pendingExtractMessage: string | null;
   setPendingExtractMessage: (msg: string | null) => void;
+  /** Current session title (first user message), for export filename. Set by ChatInterface. */
+  sessionTitle: string | null;
+  setSessionTitle: (title: string | null) => void;
 }
 
 export const useAgentStore = create<AgentState>()(
@@ -48,7 +51,7 @@ export const useAgentStore = create<AgentState>()(
       messages: [],
       chatLoading: false,
       sessionRestoreInProgress: false,
-      sidebarCollapsed: false,
+      sidebarCollapsed: true,
       sidebarWidth: 260,
       chatWidth: 420,
       canvasData: {
@@ -89,6 +92,8 @@ export const useAgentStore = create<AgentState>()(
 
       pendingExtractMessage: null,
       setPendingExtractMessage: (msg) => set({ pendingExtractMessage: msg }),
+      sessionTitle: null,
+      setSessionTitle: (sessionTitle) => set({ sessionTitle }),
     }),
     {
       name: 'ai-consultant-storage', // name of the item in the storage (must be unique)

@@ -3,8 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAgentStore } from '@/lib/store';
 import { agents } from '@/features/agents/config';
-import { ExportButton } from '@/features/export/ExportToolbar';
-import { Target, Radar as RadarIcon, Lightbulb, LayoutDashboard, ArrowRight, RotateCcw, Sparkles, Trophy, Sprout, TrendingUp } from 'lucide-react';
+import { formatGxxSummaryForCopy } from '@/features/export/ExportToolbar';
+import { Target, Radar as RadarIcon, Lightbulb, LayoutDashboard, ArrowRight, RotateCcw, Sparkles, Trophy, Sprout, TrendingUp, Copy, MoreHorizontal } from 'lucide-react';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import {
   Select,
@@ -19,25 +19,22 @@ function isFilled(v: unknown): boolean {
   return v != null && v !== '' && v !== EMPTY_PLACEHOLDER;
 }
 
-const FIELD_GUIDANCE: Record<string, string> = {
-  product: '在左侧对话中描述产品，我会帮你提炼，或点击此处直接填写',
-  target: '在对话中说明目标客户，我会帮你提炼，或点击此处直接填写',
-  price: '完成产品与客群描述后将评估利润天花板，或点击此处直接填写',
-  niche: '在对话中说明破局切入点，我会帮你提炼，或点击此处直接填写',
-  diff: '在对话中说明核心差异化，我会帮你提炼，或点击此处直接填写',
-};
+const FIELD_EMPTY_HINT = '点击填写或从对话提取';
+
+const NEXT_STEP_ORDER: { key: 'product' | 'target' | 'price' | 'niche' | 'diff'; label: string; example: string }[] = [
+  { key: 'product', label: '产品/服务形态', example: '我的产品是________，主要面向________。' },
+  { key: 'target', label: '目标客群', example: '我的目标客群是________，核心痛点是________。' },
+  { key: 'price', label: '利润天花板', example: '客单价约 5万/年，订阅制，不算高频刚需' },
+  { key: 'niche', label: '破局切入点', example: '先做一线城市律所合伙人，他们查阅法条最频繁' },
+  { key: 'diff', label: '核心差异化', example: '主打无摄像头隐私设计，客户在敏感场合也能用' },
+];
 
 function getNextStepSuggestion(data: { product?: string; target?: string; price?: string; niche?: string; diff?: string }): { label: string; example: string } | null {
   const filled = (v: unknown) => v != null && v !== '' && v !== '等待输入...';
-  if (filled(data.price) && filled(data.niche) && filled(data.diff)) return null;
-  if (!filled(data.niche)) {
-    return { label: '破局切入点', example: '先做一线城市律所合伙人，他们查阅法条最频繁' };
-  }
-  if (!filled(data.diff)) {
-    return { label: '核心差异化', example: '主打无摄像头隐私设计，客户在敏感场合也能用' };
-  }
-  if (!filled(data.price)) {
-    return { label: '利润天花板', example: '客单价约 5万/年，订阅制，不算高频刚需' };
+  for (const step of NEXT_STEP_ORDER) {
+    if (!filled(data[step.key])) {
+      return { label: step.label, example: step.example };
+    }
   }
   return null;
 }
@@ -56,6 +53,7 @@ export function GaoXiaoxinView() {
   const persistTimerRef = useRef<NodeJS.Timeout | null>(null);
   const pendingPersistRef = useRef<Record<string, unknown> | null>(null);
   const [flashingField, setFlashingField] = useState<string | null>(null);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   const persistCanvasToDb = useCallback(
     (patch: Record<string, unknown>) => {
@@ -119,6 +117,20 @@ export function GaoXiaoxinView() {
     setPendingExtractMessage('我已完成部分行动建议，想更新诊断。请根据当前画布（含已勾选的行动）和对话历史，重新评估并调用 updateCanvas 更新 summary、actionList、scores。务必提供 scores 用于雷达图。');
   }, [setPendingExtractMessage]);
 
+  const handleCopySummary = useCallback(async () => {
+    const text = formatGxxSummaryForCopy(data);
+    try {
+      await navigator.clipboard.writeText(text);
+      const el = document.createElement('div');
+      el.textContent = '已复制诊断摘要';
+      el.className = 'fixed bottom-20 left-1/2 -translate-x-1/2 px-4 py-2 bg-slate-800 text-white text-sm rounded-lg shadow-lg z-[60]';
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 2000);
+    } catch {
+      // ignore
+    }
+  }, [data]);
+
   // Flush pending changes on unmount or session change
   useEffect(() => {
     return () => {
@@ -167,7 +179,7 @@ export function GaoXiaoxinView() {
   ].filter(isFilled).length;
   const isColdStart = filledCount === 0;
   const progressLabel = isColdStart
-    ? '完成左侧 3 步对话，将自动生成诊断'
+    ? '完成左侧 5 项对话，将自动生成诊断'
     : `已填写 ${filledCount}/5 项`;
 
   const hasAnyScore = (data.scores?.high || 0) + (data.scores?.small || 0) + (data.scores?.new || 0) > 0;
@@ -189,8 +201,14 @@ export function GaoXiaoxinView() {
           <h1 className="text-2xl font-bold text-[#1e293b] tracking-tight flex items-center gap-2">
             <LayoutDashboard className="w-6 h-6 text-[#2563eb]" />
             商业可行性诊断书
+            <span
+              data-pdf-hide
+              title="高：高天花板/高频/高毛利；小：小切口/MVP/小团队；新：新人群/新渠道/新红利"
+              className="text-xs font-medium text-slate-400 hover:text-slate-600 cursor-help"
+            >
+              ?
+            </span>
           </h1>
-          <p className="text-[#64748b] text-sm mt-1">基于高小新战略模型实时生成</p>
           <div className="flex items-center gap-2 mt-2">
             <Select
               value={data.stage || '0-1'}
@@ -201,75 +219,80 @@ export function GaoXiaoxinView() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="0-1" className="text-xs">
-                  <div className="flex items-center gap-2">
-                    <Sprout className="w-3.5 h-3.5 text-blue-500" />
-                    <span>0-1 生存阶段</span>
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2">
+                      <Sprout className="w-3.5 h-3.5 text-blue-500" />
+                      <span>0-1 生存阶段</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500">聚焦生存与验证</span>
                   </div>
                 </SelectItem>
                 <SelectItem value="1-10" className="text-xs">
-                  <div className="flex items-center gap-2">
-                    <TrendingUp className="w-3.5 h-3.5 text-cyan-500" />
-                    <span>1-10 增长阶段</span>
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2">
+                      <TrendingUp className="w-3.5 h-3.5 text-cyan-500" />
+                      <span>1-10 增长阶段</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500">可复制性与团队建设</span>
                   </div>
                 </SelectItem>
                 <SelectItem value="10-100" className="text-xs">
-                  <div className="flex items-center gap-2">
-                    <Trophy className="w-3.5 h-3.5 text-amber-500" />
-                    <span>10-100 成王阶段</span>
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2">
+                      <Trophy className="w-3.5 h-3.5 text-amber-500" />
+                      <span>10-100 成王阶段</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500">效率与护城河</span>
                   </div>
                 </SelectItem>
               </SelectContent>
             </Select>
-            <span className="text-xs text-[#94a3b8]">· {progressLabel}</span>
+            <span className="text-xs text-[#94a3b8]">{progressLabel}</span>
           </div>
         </div>
-        <div data-pdf-hide className="flex flex-col items-end gap-1">
-          <p className="text-[10px] text-[#94a3b8] max-w-[220px] text-right text-balance">画布随 AI 回复自动更新，您也可点击字段直接修改</p>
-          <div className="flex items-center gap-2 flex-wrap justify-end">
-            <span className={`px-3 py-1 border rounded-full text-xs font-medium flex items-center gap-1 transition-colors ${chatLoading ? 'bg-amber-50 text-amber-600 border-amber-200' : 'bg-green-50 text-green-600 border-green-200'}`}>
-              <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${chatLoading ? 'bg-amber-500' : 'bg-green-500'}`}></span>
-              {chatLoading ? '思考并提取中...' : '跟随会话中 · 画布会随对话自动更新'}
-            </span>
+        <div data-pdf-hide className="flex items-center gap-2">
+          <div className="relative">
             <button
               type="button"
-              onClick={handleExtractFromChat}
-              disabled={chatLoading}
-              title="根据对话历史重新提取画布"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition-colors text-xs font-medium border border-blue-200 disabled:opacity-50 disabled:pointer-events-none"
+              onClick={() => setShowMoreMenu((v) => !v)}
+              className="flex items-center justify-center w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+              title="更多操作"
+              aria-label="更多操作"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              从对话重新提取
+              <MoreHorizontal className="w-4 h-4" />
             </button>
-            {Array.isArray(data.actionList) && data.actionList.length > 0 && (
-              <button
-                type="button"
-                onClick={handleFollowUpConsultation}
-                disabled={chatLoading}
-                title="基于已完成的行动更新诊断"
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition-colors text-xs font-medium border border-emerald-200 disabled:opacity-50 disabled:pointer-events-none"
-              >
-                <ArrowRight className="w-3.5 h-3.5" />
-                复诊（更新诊断）
-              </button>
+            {showMoreMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} aria-hidden />
+                <div className="absolute right-0 top-full mt-1 py-1 min-w-[160px] bg-white rounded-lg border border-slate-200 shadow-lg z-50">
+                  <button
+                    type="button"
+                    onClick={() => { handleExtractFromChat(); setShowMoreMenu(false); }}
+                    disabled={chatLoading}
+                    className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 disabled:opacity-50"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    从对话重新提取
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { handleResetCanvas(); setShowMoreMenu(false); }}
+                    className="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-slate-50 text-slate-600"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    重置画布
+                  </button>
+                </div>
+              </>
             )}
-            <button
-              type="button"
-              onClick={handleResetCanvas}
-              title="清空画布"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors text-xs font-medium border border-slate-200"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              重置画布
-            </button>
-            <ExportButton />
           </div>
         </div>
       </div>
 
       {isColdStart && (
-        <div className="z-10 px-4 py-3 rounded-xl bg-blue-50 border border-blue-100 text-sm text-[#1e293b]">
-          请先在左侧按 <strong>① 产品</strong> → <strong>② 客群</strong> → <strong>③ 差异化</strong> 的顺序与顾问对话，此处将实时生成诊断与评分。画布会随对话自动更新；空字段可点击直接编辑。
-        </div>
+        <p className="z-10 text-sm text-slate-600">
+          在左侧对话中描述你的产品和客群，画布会自动更新
+        </p>
       )}
 
       <div className="grid grid-cols-5 gap-6">
@@ -287,7 +310,7 @@ export function GaoXiaoxinView() {
           </div>
         </div>
         <div className="col-span-2 flex flex-col items-center justify-start p-5 bg-slate-50 rounded-2xl border border-slate-100 h-full">
-           <h3 className="text-sm font-semibold text-[#1e293b] mb-6 w-full text-left flex items-center gap-2">
+           <h3 className="text-sm font-semibold text-[#1e293b] mb-6 w-full text-left flex items-center gap-2" title="高：天花板/高频/高毛利；小：小切口/MVP/小团队；新：新人群/新渠道/新红利">
               <RadarIcon className="w-4 h-4 text-[#3b82f6]" />
               高小新多维模型评分
            </h3>
@@ -304,11 +327,7 @@ export function GaoXiaoxinView() {
              ) : (
                <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 text-xs text-[#475569] bg-slate-50/50 rounded-xl">
                   <div className="w-24 h-24 rounded-full border-2 border-dashed border-slate-200 mb-3" />
-                  <span>等待数据填充</span>
-                  <span className="mt-0.5">生成雷达图</span>
-                  {filledCount >= 5 && (
-                    <span className="mt-2 text-[10px] text-amber-600">5 项已填但评分未生成，可点击「从对话重新提取」或继续与顾问对话</span>
-                  )}
+                  <span>完成左侧 5 项后将在此显示评分</span>
                </div>
              )}
            </div>
@@ -361,17 +380,27 @@ export function GaoXiaoxinView() {
         ) : null;
       })()}
 
-      {filledCount >= 5 && hasAnyScore && (!data.summary?.trim() || !Array.isArray(data.actionList) || data.actionList.length === 0) && (
-        <div className="z-10 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-sm text-[#78350f] flex flex-col gap-2">
-          <span className="font-semibold">诊断总结或行动清单未完整生成。点击下方按钮自动补全。</span>
-          <button
-            type="button"
-            onClick={handleCompleteDiagnosis}
-            disabled={chatLoading}
-            className="self-start px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:pointer-events-none"
-          >
-            补全诊断
-          </button>
+      {filledCount >= 5 && (!hasAnyScore || !data.summary?.trim() || !Array.isArray(data.actionList) || data.actionList.length === 0) && (
+        <div className="z-10 px-4 py-4 rounded-xl bg-amber-50 border border-amber-200 text-sm text-[#78350f] flex flex-col gap-3">
+          <p className="font-semibold">诊断尚未生成。请点击下方「生成诊断」由顾问根据当前信息补全评分与建议。</p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={handleCompleteDiagnosis}
+              disabled={chatLoading}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg transition-colors text-sm font-medium disabled:opacity-50 disabled:pointer-events-none"
+            >
+              生成诊断
+            </button>
+            <button
+              type="button"
+              onClick={handleExtractFromChat}
+              disabled={chatLoading}
+              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors text-sm font-medium border border-slate-200 disabled:opacity-50 disabled:pointer-events-none"
+            >
+              从对话重新提取
+            </button>
+          </div>
         </div>
       )}
       
@@ -379,7 +408,7 @@ export function GaoXiaoxinView() {
         <h3 className="text-sm font-semibold text-[#1e293b] flex items-center gap-2 mb-4">
           <Lightbulb className="w-4 h-4 text-[#f59e0b]" /> AI 诊断点评 & 下一步行动
         </h3>
-        <div className="bg-amber-50 border border-amber-100 rounded-xl p-5 mb-5 shadow-sm">
+        <div className="bg-amber-50 border border-amber-100 rounded-xl p-5 mb-4 shadow-sm">
           <p className={`text-sm leading-relaxed font-semibold ${data.summary ? 'text-[#1e293b]' : 'text-[#475569] italic'}`}>
             {data.summary || '当前数据不足，AI 分析引擎待命中，请继续在左侧与顾问交流...'}
           </p>
@@ -387,8 +416,42 @@ export function GaoXiaoxinView() {
             <p className="text-[10px] text-[#94a3b8] mt-2">诊断依据来自高小新会议纪要知识库</p>
           )}
         </div>
+        {data.summary && (
+          <div className="flex flex-wrap items-center gap-2 mb-5">
+            <button
+              type="button"
+              onClick={handleFollowUpConsultation}
+              disabled={chatLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition-colors text-xs font-medium border border-emerald-200 disabled:opacity-50 disabled:pointer-events-none"
+            >
+              <ArrowRight className="w-3.5 h-3.5" />
+              复诊
+            </button>
+            <button
+              type="button"
+              onClick={handleCopySummary}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-colors text-xs font-medium border border-slate-200"
+            >
+              <Copy className="w-3.5 h-3.5" />
+              复制摘要
+            </button>
+          </div>
+        )}
+        {data.summary && Array.isArray(data.actionList) && data.actionList.length > 0 && (() => {
+          const checkedCount = (data.actionListChecked ?? []).filter(Boolean).length;
+          if (checkedCount === 0) return null;
+          return (
+            <p className="text-xs text-emerald-600 mb-3 ml-1">您已标记 {checkedCount} 项完成，点击「复诊」可更新诊断建议</p>
+          );
+        })()}
         
-        <h4 className="text-xs font-bold text-[#475569] uppercase tracking-wider mb-3 ml-1">Action List</h4>
+        <h4 className="text-xs font-bold text-[#475569] uppercase tracking-wider mb-3 ml-1">
+          Action List
+          {Array.isArray(data.actionList) && data.actionList.length > 0 && (() => {
+            const checkedCount = (data.actionListChecked ?? []).slice(0, data.actionList.length).filter(Boolean).length;
+            return <span className="font-normal text-slate-500 ml-1">（{checkedCount}/{data.actionList.length} 已完成）</span>;
+          })()}
+        </h4>
         {Array.isArray(data.actionList) && data.actionList.length > 0 ? (
           <ul className="space-y-3 max-h-[240px] overflow-y-auto pr-1">
             {data.actionList.map((action: string, idx: number) => {
@@ -459,7 +522,7 @@ function FieldBox({
   }, [editing]);
 
   const filled = isFilled(value);
-  const displayValue = filled ? value : (FIELD_GUIDANCE[fieldKey ?? ''] ?? '完成左侧对话后将自动填充');
+  const displayValue = filled ? value : FIELD_EMPTY_HINT;
 
   const handleBlur = () => {
     setEditing(false);
