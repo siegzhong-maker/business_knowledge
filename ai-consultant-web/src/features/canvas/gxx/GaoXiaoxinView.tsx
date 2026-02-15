@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAgentStore } from '@/lib/store';
 import { agents } from '@/features/agents/config';
-import { formatGxxSummaryForCopy } from '@/features/export/ExportToolbar';
 import { Target, Radar as RadarIcon, Lightbulb, LayoutDashboard, ArrowRight, RotateCcw, Sparkles, Trophy, Sprout, TrendingUp, Copy, MoreHorizontal } from 'lucide-react';
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import {
@@ -20,6 +19,28 @@ function isFilled(v: unknown): boolean {
 }
 
 const FIELD_EMPTY_HINT = '点击填写或从对话提取';
+
+function formatGxxSummaryForCopy(data: Record<string, unknown>): string {
+  const lines = [
+    '【诊断总结】',
+    (data.summary as string) || '（暂无）',
+    '',
+    '【项目概览】',
+    `产品/服务：${(data.product as string) || '（待补充）'}`,
+    `目标客群：${(data.target as string) || '（待补充）'}`,
+    `利润天花板：${(data.price as string) || '（待补充）'}`,
+    `破局切入点：${(data.niche as string) || '（待补充）'}`,
+    `核心差异化：${(data.diff as string) || '（待补充）'}`,
+  ];
+  const actionList = data.actionList as string[] | undefined;
+  if (Array.isArray(actionList) && actionList.length > 0) {
+    lines.push('', '【下一步行动】');
+    actionList.forEach((a: string, i: number) => {
+      lines.push(`${i + 1}. ${a}`);
+    });
+  }
+  return lines.join('\n');
+}
 
 const NEXT_STEP_ORDER: { key: 'product' | 'target' | 'price' | 'niche' | 'diff'; label: string; example: string }[] = [
   { key: 'product', label: '产品/服务形态', example: '我的产品是________，主要面向________。' },
